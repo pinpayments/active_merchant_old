@@ -81,6 +81,17 @@ module ActiveMerchant #:nodoc:
         commit(:post, "refunds", post)
       end
 
+      def credit(money, creditcard, options={})
+        post = {}
+
+        add_creditcard(post, creditcard, options)
+        add_extra_options(post, options)
+        add_amount(post, money, options)
+        add_order_id(post, options)
+
+        commit(:post, "refunds", post)
+      end
+
       # Tokenize a credit card
       #
       # The token is returned in the Response#authorization
@@ -124,6 +135,7 @@ module ActiveMerchant #:nodoc:
         extra[:name] = options[:merchant] if options[:merchant]
         extra[:location] = options[:merchant_location] if options[:merchant_location]
         extra[:ecm] = "32" if options[:recurring]
+        extra[:description] = options[:description] if options[:description]
         post[:extra] = extra if extra.any?
       end
 
