@@ -31,11 +31,15 @@ You can check out the latest source from git:
 
 Installation from RubyGems:
 
-    gem install activemerchant
+```console
+gem install activemerchant
+```
 
 Or, if you're using Bundler, just add the following to your Gemfile:
 
-    gem 'activemerchant'
+```ruby
+gem 'activemerchant'
+```
 
 ## Usage
 
@@ -82,16 +86,16 @@ For more in-depth documentation and tutorials, see [GettingStarted.md](GettingSt
 
 ## Supported Payment Gateways
 
-The [ActiveMerchant Wiki](http://github.com/activemerchant/active_merchant/wikis) contains a [table of features supported by each gateway](http://github.com/activemerchant/active_merchant/wikis/gatewayfeaturematrix).
+The [ActiveMerchant Wiki](https://github.com/activemerchant/active_merchant/wikis) contains a [table of features supported by each gateway](https://github.com/activemerchant/active_merchant/wiki/Gateway-Feature-Matrix).
 
 * [Authorize.Net CIM](http://www.authorize.net/) - US
 * [Authorize.Net](http://www.authorize.net/) - AD, AT, AU, BE, BG, CA, CH, CY, CZ, DE, DK, ES, FI, FR, GB, GB, GI, GR, HU, IE, IT, LI, LU, MC, MT, NL, NO, PL, PT, RO, SE, SI, SK, SM, TR, US, VA
 * [Axcess MS](http://www.axcessms.com/) - AD, AT, BE, BG, BR, CA, CH, CY, CZ, DE, DK, EE, ES, FI, FO, FR, GB, GI, GR, HR, HU, IE, IL, IM, IS, IT, LI, LT, LU, LV, MC, MT, MX, NL, NO, PL, PT, RO, RU, SE, SI, SK, TR, US, VA
 * [Balanced](https://www.balancedpayments.com/) - US
+* [Bambora Asia-Pacific](http://www.bambora.com/) - AU, NZ
 * [Bank Frick](http://www.bankfrickacquiring.com/) - LI, US
 * [Banwire](http://www.banwire.com/) - MX
 * [Barclays ePDQ Extra Plus](http://www.barclaycard.co.uk/business/accepting-payments/epdq-ecomm/) - GB
-* [Barclays ePDQ MPI](http://www.barclaycard.co.uk/business/accepting-payments/epdq-mpi/) - GB
 * [Be2Bill](http://www.be2bill.com/) - FR
 * [Beanstream.com](http://www.beanstream.com/) - CA, US
 * [BluePay](http://www.bluepay.com/) - US
@@ -150,7 +154,7 @@ The [ActiveMerchant Wiki](http://github.com/activemerchant/active_merchant/wikis
 * [Metrics Global](http://www.metricsglobal.com) - US
 * [MasterCard Internet Gateway Service (MiGS)](http://mastercard.com/mastercardsps) - AU, AE, BD, BN, EG, HK, ID, IN, JO, KW, LB, LK, MU, MV, MY, NZ, OM, PH, QA, SA, SG, TT, VN
 * [Modern Payments](http://www.modpay.com) - US
-* [MONEI](http://www.monei.net/) - ES
+* [MONEI](http://www.monei.net/) - AD, AT, BE, BG, CA, CH, CY, CZ, DE, DK, EE, ES, FI, FO, FR, GB, GI, GR, HU, IE, IL, IS, IT, LI, LT, LU, LV, MT, NL, NO, PL, PT, RO, SE, SI, SK, TR, US, VA
 * [Moneris](http://www.moneris.com/) - CA
 * [Moneris (US)](http://www.monerisusa.com/) - US
 * [MoneyMovers](http://mmoa.us/) - US
@@ -162,7 +166,7 @@ The [ActiveMerchant Wiki](http://github.com/activemerchant/active_merchant/wikis
 * [NETPAY Gateway](http://www.netpay.com.mx) - MX
 * [NMI](http://nmi.com/) - US
 * [Ogone](http://www.ogone.com/) - BE, DE, FR, NL, AT, CH
-* [Omise](https://www.omise.co/) - TH
+* [Omise](https://www.omise.co/) - TH, JP
 * [Openpay](Openpay) - MX
 * [Optimal Payments](http://www.optimalpayments.com/) - CA, US, GB
 * [Orbital Paymentech](http://chasepaymentech.com/) - US, CA
@@ -189,14 +193,14 @@ The [ActiveMerchant Wiki](http://github.com/activemerchant/active_merchant/wikis
 * [Paystation](http://paystation.co.nz) - NZ
 * [Pay Way](http://www.payway.com.au) - AU
 * [PayU India](https://www.payu.in/) - IN
-* [Pin Payments](http://www.pin.net.au/) - AU
+* [Pin Payments](http://www.pinpayments.com/) - AU
 * [Plug'n Pay](http://www.plugnpay.com/) - US
 * [Psigate](http://www.psigate.com/) - CA
 * [PSL Payment Solutions](http://www.paymentsolutionsltd.com/) - GB
 * [QuickBooks Merchant Services](http://payments.intuit.com/) - US
 * [QuickBooks Payments](http://payments.intuit.com/) - US
 * [Quantum Gateway](http://www.quantumgateway.com) - US
-* [QuickPay](http://quickpay.net/) - DE, DK, ES, FI, FR, FO, GB, IS, NO, SE
+* [QuickPay](http://quickpay.net/) - AT, BE, BG, CY, CZ, DE, DK, EE, ES, FI, FR, GB, GR, HR, HU, IE, IS, IT, LI, LT, LU, LV, MT, NL, NO, PL, PT, RO, SE SI, SK
 * [Qvalent](https://www.qvalent.com/) - AU
 * [Raven](http://www.deepcovelabs.com/raven) - AI, AN, AT, AU, BE, BG, BS, BZ, CA, CH, CR, CY, CZ, DE, DK, DM, DO, EE, EL, ES, FI, FR, GB, GG, GI, HK, HR, HU, IE, IL, IM, IN, IT, JE, KN, LI, LT, LU, LV, MH, MT, MY, NL, NO, NZ, PA, PE, PH, PL, PT, RO, RS, SC, SE, SG, SI, SK, UK, US, VG, ZA
 * [Realex](http://www.realexpayments.com/) - IE, GB, FR, BE, NL, LU, IT
@@ -233,3 +237,7 @@ The [ActiveMerchant Wiki](http://github.com/activemerchant/active_merchant/wikis
 ## API stability policy
 
 Functionality or APIs that are deprecated will be marked as such. Deprecated functionality is removed on major version changes - for example, deprecations from 2.x are removed in 3.x.
+
+## Ruby and Rails compatibility policies
+
+Because Active Merchant is a payment library, it needs to take security seriously. For this reason, Active Merchant guarantees compatibility only with actively supported versions of Ruby and Rails. At the time of this writing, that means that Ruby 2.3+ and Rails 4.2+ are supported.
