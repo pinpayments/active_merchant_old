@@ -272,23 +272,11 @@ module ActiveMerchant #:nodoc:
         self.currencies_with_three_decimal_places.include?(currency.to_s)
       end
 
+      # Pin Payments does not want to mess with the amount being passed in.
+      # We correctly send exactly the amount that we want processed.
+      # eg. When we say 100 JPY, we mean 100 JPY, not 1 JPY.
       def localized_amount(money, currency)
-        amount = amount(money)
-
-        return amount unless non_fractional_currency?(currency) || three_decimal_currency?(currency)
-        if non_fractional_currency?(currency)
-          if self.money_format == :cents
-            sprintf('%.0f', amount.to_f / 100)
-          else
-            amount.split('.').first
-          end
-        elsif three_decimal_currency?(currency)
-          if self.money_format == :cents
-            amount.to_s
-          else
-            sprintf('%.3f', (amount.to_f / 10))
-          end
-        end
+        amount(money)
       end
 
       def currency(money)
