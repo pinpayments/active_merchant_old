@@ -23,11 +23,6 @@ Gemspec/OrderedDependencies:
 Layout/AlignHash:
   Enabled: false
 
-# Offense count: 57
-# Cop supports --auto-correct.
-Layout/ClosingHeredocIndentation:
-  Enabled: false
-
 # Offense count: 167
 # Cop supports --auto-correct.
 Layout/EmptyLineAfterGuardClause:
@@ -81,13 +76,6 @@ Layout/IndentHeredoc:
 Layout/MultilineArrayBraceLayout:
   Exclude:
     - 'lib/active_merchant/billing/gateways/optimal_payment.rb'
-
-# Offense count: 36
-# Cop supports --auto-correct.
-# Configuration parameters: EnforcedStyle.
-# SupportedStyles: symmetrical, new_line, same_line
-Layout/MultilineHashBraceLayout:
-  Enabled: false
 
 # Offense count: 232
 # Cop supports --auto-correct.
@@ -733,11 +721,6 @@ Style/IfInsideElse:
     - 'lib/active_merchant/billing/gateways/quantum.rb'
     - 'lib/active_merchant/billing/gateways/skip_jack.rb'
     - 'lib/active_merchant/billing/gateways/worldpay_online_payments.rb'
-
-# Offense count: 128
-# Cop supports --auto-correct.
-Style/IfUnlessModifier:
-  Enabled: false
 
 # Offense count: 1
 Style/IfUnlessModifierOfIfUnless:

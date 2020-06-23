@@ -122,7 +122,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_extra_options(post, options)
-        extra = options.fetch(:extra, {})
+        extra = {}
         extra[:ecm] = '32' if options[:recurring]
         extra[:cavv] = options[:cavv] if options[:cavv]
         extra[:xid] = options[:xid] if options[:xid]
@@ -144,7 +144,6 @@ module ActiveMerchant #:nodoc:
         post[:metadata] = options.fetch(:metadata, {})
       end
 
-      # Post the data to the gateway
       def commit(method, uri, parameters=nil)
         response = begin
           parse(ssl_request(method, get_url(uri), parameters.to_json, headers))
