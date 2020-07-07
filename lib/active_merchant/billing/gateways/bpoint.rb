@@ -7,7 +7,7 @@ module ActiveMerchant #:nodoc:
 
       self.supported_countries = ['AU']
       self.default_currency = 'AUD'
-      self.supported_cardtypes = [:visa, :master, :american_express, :diners_club]
+      self.supported_cardtypes = %i[visa master american_express diners_club]
 
       self.homepage_url = 'https://www.bpoint.com.au/bpoint'
       self.display_name = 'BPoint'
@@ -61,10 +61,10 @@ module ActiveMerchant #:nodoc:
         commit(request_body)
       end
 
-      def void(amount, authorization, options={})
+      def void(authorization, options={})
         request_body = soap_request do |xml|
           process_payment(xml) do |payment_xml|
-            add_void(payment_xml, amount, authorization, options)
+            add_void(payment_xml, authorization, options)
           end
         end
         commit(request_body)
@@ -73,7 +73,7 @@ module ActiveMerchant #:nodoc:
       def verify(credit_card, options={})
         MultiResponse.run(:use_first_response) do |r|
           r.process { authorize(100, credit_card, options) }
-          r.process(:ignore_result) { void(100, r.authorization, options) }
+          r.process(:ignore_result) { void(r.authorization, options.merge(amount: 100)) }
         end
       end
 
@@ -91,7 +91,7 @@ module ActiveMerchant #:nodoc:
       private
 
       def soap_request
-        Nokogiri::XML::Builder.new(:encoding => 'utf-8') do |xml|
+        Nokogiri::XML::Builder.new(encoding: 'utf-8') do |xml|
           xml.send('soap12:Envelope', soap_envelope_attributes) {
             xml.send('soap12:Body') {
               yield(xml) if block_given?
@@ -154,7 +154,9 @@ module ActiveMerchant #:nodoc:
         transaction_number_xml(xml, transaction_number)
       end
 
-      def add_void(xml, amount, transaction_number, options)
+      def add_void(xml, transaction_number, options)
+        # The amount parameter is required for void requests on BPoint.
+        amount = options[:amount]
         payment_xml(xml, 'REVERSAL', amount, options)
         transaction_number_xml(xml, transaction_number)
       end
@@ -163,10 +165,10 @@ module ActiveMerchant #:nodoc:
         xml.send('PaymentType', payment_type)
         xml.send('TxnType', 'WEB_SHOP')
         xml.send('BillerCode', options.fetch(:biller_code, ''))
-        xml.send('MerchantReference', '')
-        xml.send('CRN1', '')
-        xml.send('CRN2', '')
-        xml.send('CRN3', '')
+        xml.send('MerchantReference', options[:order_id]) if options[:order_id]
+        xml.send('CRN1', options[:crn1]) if options[:crn1]
+        xml.send('CRN2', options[:crn2]) if options[:crn2]
+        xml.send('CRN3', options[:crn3]) if options[:crn3]
         xml.send('Amount', amount)
       end
 
@@ -240,7 +242,6 @@ module ActiveMerchant #:nodoc:
       end
 
       class ProcessPaymentResponse < BPointResponse
-
         private
 
         def authorization_key
@@ -257,7 +258,6 @@ module ActiveMerchant #:nodoc:
       end
 
       class AddTokenResponse < BPointResponse
-
         private
 
         def authorization_key

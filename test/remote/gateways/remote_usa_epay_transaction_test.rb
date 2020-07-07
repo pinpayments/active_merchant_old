@@ -6,8 +6,9 @@ class RemoteUsaEpayTransactionTest < Test::Unit::TestCase
     @credit_card = credit_card('4000100011112224')
     @declined_card = credit_card('4000300011112220')
     @credit_card_with_track_data = credit_card_with_track_data('4000100011112224')
+    @invalid_transaction_card = credit_card('4000300511112225')
     @check = check
-    @options = { :billing_address => address(:zip => '27614', :state => 'NC'), :shipping_address => address }
+    @options = { billing_address: address(zip: '27614', state: 'NC'), shipping_address: address }
     @amount = 100
   end
 
@@ -51,19 +52,19 @@ class RemoteUsaEpayTransactionTest < Test::Unit::TestCase
   end
 
   def test_successful_purchase_with_extra_details
-    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(:order_id => generate_unique_id, :description => 'socool'))
+    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(order_id: generate_unique_id, description: 'socool'))
     assert_equal 'Success', response.message
     assert_success response
   end
 
   def test_successful_purchase_with_extra_test_mode
-    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(:test_mode => true))
+    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(test_mode: true))
     assert_equal 'Success', response.message
     assert_success response
   end
 
   def test_successful_purchase_with_email_receipt
-    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(:email => 'hank@hill.com', :cust_receipt => 'Yes'))
+    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(email: 'hank@hill.com', cust_receipt: 'Yes'))
     assert_equal 'Success', response.message
     assert_success response
   end
@@ -99,7 +100,7 @@ class RemoteUsaEpayTransactionTest < Test::Unit::TestCase
 
   def test_successful_purchase_with_line_items
     line_items = [
-      {sku:  'abc123', cost: 119, quantity: 1},
+      {sku: 'abc123', cost: 119, quantity: 1},
       {sku: 'def456', cost: 200, quantity: 2, name: 'an item' }
     ]
 
@@ -112,7 +113,7 @@ class RemoteUsaEpayTransactionTest < Test::Unit::TestCase
     # For some reason this will fail with "You have tried this card too
     # many times, please contact merchant" unless a unique order id is
     # passed.
-    assert response = @gateway.purchase(@amount, @declined_card, @options.merge(:order_id => generate_unique_id))
+    assert response = @gateway.purchase(@amount, @declined_card, @options.merge(order_id: generate_unique_id))
     assert_failure response
     assert_match(/declined/i, response.message)
     assert Gateway::STANDARD_ERROR_CODE[:card_declined], response.error_code
@@ -208,7 +209,7 @@ class RemoteUsaEpayTransactionTest < Test::Unit::TestCase
   end
 
   def test_invalid_key
-    gateway = UsaEpayTransactionGateway.new(:login => '')
+    gateway = UsaEpayTransactionGateway.new(login: '')
     assert response = gateway.purchase(@amount, @credit_card, @options)
     assert_equal 'Specified source key not found.', response.message
     assert_failure response
@@ -252,5 +253,11 @@ class RemoteUsaEpayTransactionTest < Test::Unit::TestCase
 
     assert_scrubbed(@check.account_number, transcript)
     assert_scrubbed(@gateway.options[:login], transcript)
+  end
+
+  def test_processing_error
+    assert response = @gateway.purchase(@amount, @invalid_transaction_card, @options)
+    assert_equal 'processing_error', response.error_code
+    assert_failure response
   end
 end

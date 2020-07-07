@@ -7,17 +7,17 @@ class MerchantESolutionsTest < Test::Unit::TestCase
     Base.mode = :test
 
     @gateway = MerchantESolutionsGateway.new(
-                 :login => 'login',
-                 :password => 'password'
-               )
+      login: 'login',
+      password: 'password'
+    )
 
     @credit_card = credit_card
     @amount = 100
 
     @options = {
-      :order_id => '1',
-      :billing_address => address,
-      :description => 'Store Purchase'
+      order_id: '1',
+      billing_address: address,
+      description: 'Store Purchase'
     }
   end
 
@@ -122,7 +122,7 @@ class MerchantESolutionsTest < Test::Unit::TestCase
     @gateway.expects(:ssl_post).returns(successful_purchase_response + '&avs_result=A')
     assert response = @gateway.purchase(@amount, @credit_card, @options)
     assert_equal response.avs_result['code'], 'A'
-    assert_equal response.avs_result['message'], 'Street address matches, but 5-digit and 9-digit postal code do not match.'
+    assert_equal response.avs_result['message'], 'Street address matches, but postal code does not match.'
     assert_equal response.avs_result['street_match'], 'Y'
     assert_equal response.avs_result['postal_match'], 'N'
   end
@@ -143,7 +143,7 @@ class MerchantESolutionsTest < Test::Unit::TestCase
 
   def test_visa_3dsecure_params_submitted
     stub_comms(@gateway, :ssl_request) do
-      @gateway.purchase(@amount, @credit_card, @options.merge({:xid => '1', :cavv => '2'}))
+      @gateway.purchase(@amount, @credit_card, @options.merge({xid: '1', cavv: '2'}))
     end.check_request do |method, endpoint, data, headers|
       assert_match(/xid=1/, data)
       assert_match(/cavv=2/, data)
@@ -152,7 +152,7 @@ class MerchantESolutionsTest < Test::Unit::TestCase
 
   def test_mastercard_3dsecure_params_submitted
     stub_comms(@gateway, :ssl_request) do
-      @gateway.purchase(@amount, @credit_card, @options.merge({:ucaf_collection_ind => '1', :ucaf_auth_data => '2'}))
+      @gateway.purchase(@amount, @credit_card, @options.merge({ucaf_collection_ind: '1', ucaf_auth_data: '2'}))
     end.check_request do |method, endpoint, data, headers|
       assert_match(/ucaf_collection_ind=1/, data)
       assert_match(/ucaf_auth_data=2/, data)
@@ -164,7 +164,7 @@ class MerchantESolutionsTest < Test::Unit::TestCase
   end
 
   def test_supported_card_types
-    assert_equal [:visa, :master, :american_express, :discover, :jcb], MerchantESolutionsGateway.supported_cardtypes
+    assert_equal %i[visa master american_express discover jcb], MerchantESolutionsGateway.supported_cardtypes
   end
 
   def test_scrub

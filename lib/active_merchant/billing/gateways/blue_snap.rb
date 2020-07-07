@@ -8,7 +8,9 @@ module ActiveMerchant
       self.supported_countries = %w(US CA GB AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE AR BO BR BZ CL CO CR DO EC GF GP GT HN HT MF MQ MX NI PA PE PR PY SV UY VE)
 
       self.default_currency = 'USD'
-      self.supported_cardtypes = [:visa, :master, :american_express, :discover, :jcb, :diners_club, :maestro]
+      self.supported_cardtypes = %i[visa master american_express discover jcb diners_club maestro naranja cabal]
+      self.currencies_without_fractions = %w(BYR CLP ILS JPY KRW VND XOF)
+      self.currencies_with_three_decimal_places = %w(BHD JOD KWD OMR TND)
 
       self.homepage_url = 'https://home.bluesnap.com/'
       self.display_name = 'BlueSnap'
@@ -66,6 +68,8 @@ module ActiveMerchant
         'business_savings' => 'CORPORATE_SAVINGS'
       }
 
+      STATE_CODE_COUNTRIES = %w(US CA)
+
       def initialize(options={})
         requires!(options, :api_username, :api_password)
         super
@@ -93,6 +97,7 @@ module ActiveMerchant
         commit(:capture, :put) do |doc|
           add_authorization(doc, authorization)
           add_order(doc, options)
+          add_amount(doc, money, options) if options[:include_capture_amount] == true
         end
       end
 
@@ -185,8 +190,9 @@ module ActiveMerchant
       end
 
       def add_amount(doc, money, options)
-        doc.amount(amount(money))
-        doc.currency(options[:currency] || currency(money))
+        currency = options[:currency] || currency(money)
+        doc.amount(localized_amount(money, currency))
+        doc.currency(currency)
       end
 
       def add_personal_info(doc, payment_method, options)
@@ -220,6 +226,7 @@ module ActiveMerchant
         doc.send('merchant-transaction-id', truncate(options[:order_id], 50)) if options[:order_id]
         doc.send('soft-descriptor', options[:soft_descriptor]) if options[:soft_descriptor]
         add_description(doc, options[:description]) if options[:description]
+        add_3ds(doc, options[:three_d_secure]) if options[:three_d_secure]
         add_level_3_data(doc, options)
       end
 
@@ -228,14 +235,31 @@ module ActiveMerchant
         return unless address
 
         doc.country(address[:country]) if address[:country]
-        doc.state(address[:state]) if address[:state]
+        doc.state(address[:state]) if address[:state] && STATE_CODE_COUNTRIES.include?(address[:country])
         doc.address(address[:address]) if address[:address]
         doc.city(address[:city]) if address[:city]
         doc.zip(address[:zip]) if address[:zip]
       end
 
+      def add_3ds(doc, three_d_secure_options)
+        eci = three_d_secure_options[:eci]
+        cavv = three_d_secure_options[:cavv]
+        xid = three_d_secure_options[:xid]
+        ds_transaction_id = three_d_secure_options[:ds_transaction_id]
+        version = three_d_secure_options[:version]
+
+        doc.send('three-d-secure') do
+          doc.eci(eci) if eci
+          doc.cavv(cavv) if cavv
+          doc.xid(xid) if xid
+          doc.send('three-d-secure-version', version) if version
+          doc.send('ds-transaction-id', ds_transaction_id) if ds_transaction_id
+        end
+      end
+
       def add_level_3_data(doc, options)
         return unless options[:customer_reference_number]
+
         doc.send('level-3-data') do
           send_when_present(doc, :customer_reference_number, options)
           send_when_present(doc, :sales_tax_amount, options)
@@ -253,6 +277,7 @@ module ActiveMerchant
 
       def send_when_present(doc, options_key, options, xml_element_name = nil)
         return unless options[options_key]
+
         xml_element_name ||= options_key.to_s
 
         doc.send(xml_element_name.dasherize, options[options_key])
@@ -287,9 +312,7 @@ module ActiveMerchant
         vaulted_shopper_id = payment_method_details.vaulted_shopper_id
         doc.send('vaulted-shopper-id', vaulted_shopper_id) if vaulted_shopper_id
 
-        if payment_method_details.check?
-          add_echeck_transaction(doc, payment_method_details.payment_method, options, vaulted_shopper_id.present?)
-        end
+        add_echeck_transaction(doc, payment_method_details.payment_method, options, vaulted_shopper_id.present?) if payment_method_details.check?
 
         add_fraud_info(doc, options)
         add_description(doc, options)
@@ -362,7 +385,7 @@ module ActiveMerchant
         succeeded = success_from(action, response)
         Response.new(
           succeeded,
-          message_from(succeeded, parsed),
+          message_from(succeeded, response),
           parsed,
           authorization: authorization_from(action, parsed, payment_method_details),
           avs_result: avs_result(parsed),
@@ -394,9 +417,34 @@ module ActiveMerchant
         (200...300).cover?(response.code.to_i)
       end
 
-      def message_from(succeeded, parsed_response)
+      def message_from(succeeded, response)
         return 'Success' if succeeded
-        parsed_response['description']
+
+        parsed = parse(response)
+        if parsed.dig('error-name') == 'FRAUD_DETECTED'
+          fraud_codes_from(response)
+        else
+          parsed['description']
+        end
+      end
+
+      def fraud_codes_from(response)
+        event_summary = {}
+        doc = Nokogiri::XML(response.body)
+        fraud_events = doc.xpath('//xmlns:fraud-events', 'xmlns' => 'http://ws.plimus.com')
+        fraud_events.children.each do |child|
+          if child.children.children.any?
+            event_summary[child.name] = event_summary[child.name] || []
+            event = {}
+            child.children.each do |chi|
+              event[chi.name] = chi.text
+            end
+            event_summary[child.name] << event
+          else
+            event_summary[child.name] = child.text
+          end
+        end
+        event_summary.to_json
       end
 
       def authorization_from(action, parsed_response, payment_method_details)
@@ -405,6 +453,7 @@ module ActiveMerchant
 
       def vaulted_shopper_id(parsed_response, payment_method_details)
         return nil unless parsed_response['content-location-header']
+
         vaulted_shopper_id = parsed_response['content-location-header'].split('/').last
         vaulted_shopper_id += "|#{payment_method_details.payment_method_type}" if payment_method_details.alt_transaction?
         vaulted_shopper_id

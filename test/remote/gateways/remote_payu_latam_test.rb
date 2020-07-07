@@ -8,9 +8,13 @@ class RemotePayuLatamTest < Test::Unit::TestCase
     @credit_card = credit_card('4097440000000004', verification_value: '444', first_name: 'APPROVED', last_name: '')
     @declined_card = credit_card('4097440000000004', verification_value: '444', first_name: 'REJECTED', last_name: '')
     @pending_card = credit_card('4097440000000004', verification_value: '444', first_name: 'PENDING', last_name: '')
+    @naranja_credit_card = credit_card('5895620000000002', verification_value: '123', first_name: 'APPROVED', last_name: '', brand: 'naranja')
+    @cabal_credit_card = credit_card('5896570000000004', verification_value: '123', first_name: 'APPROVED', last_name: '', brand: 'cabal')
+    @invalid_cabal_card = credit_card('6271700000000000', verification_value: '123', first_name: 'APPROVED', last_name: '', brand: 'cabal')
 
     @options = {
       dni_number: '5415668464654',
+      merchant_buyer_id: '1',
       currency: 'ARS',
       order_id: generate_unique_id,
       description: 'Active Merchant Transaction',
@@ -49,6 +53,20 @@ class RemotePayuLatamTest < Test::Unit::TestCase
     assert response.test?
   end
 
+  def test_successful_purchase_with_naranja_card
+    response = @gateway.purchase(@amount, @naranja_credit_card, @options)
+    assert_success response
+    assert_equal 'APPROVED', response.message
+    assert response.test?
+  end
+
+  def test_successful_purchase_with_cabal_card
+    response = @gateway.purchase(@amount, @cabal_credit_card, @options)
+    assert_success response
+    assert_equal 'APPROVED', response.message
+    assert response.test?
+  end
+
   def test_successful_purchase_with_specified_language
     response = @gateway.purchase(@amount, @credit_card, @options.merge(language: 'es'))
     assert_success response
@@ -56,8 +74,15 @@ class RemotePayuLatamTest < Test::Unit::TestCase
     assert response.test?
   end
 
-  def test_successul_purchase_with_buyer
-    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(:account_id => '512327', payment_country: 'BR'))
+  def test_successful_purchase_with_blank_billing_address_country
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(billing_address: { address1: 'Viamonte', country: '', zip: '10001' }))
+    assert_success response
+    assert_equal 'APPROVED', response.message
+    assert response.test?
+  end
+
+  def test_successful_purchase_with_buyer
+    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(account_id: '512327', payment_country: 'BR'))
 
     options_buyer = {
       currency: 'BRL',
@@ -83,6 +108,7 @@ class RemotePayuLatamTest < Test::Unit::TestCase
         name: 'Jorge Borges',
         dni_number: '5415668464123',
         dni_type: 'TI',
+        merchant_buyer_id: '2',
         cnpj: '32593371000110',
         email: 'axaxaxas@mlo.org'
       }
@@ -95,7 +121,7 @@ class RemotePayuLatamTest < Test::Unit::TestCase
   end
 
   def test_successful_purchase_brazil
-    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(:account_id => '512327', payment_country: 'BR'))
+    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(account_id: '512327', payment_country: 'BR'))
 
     options_brazil = {
       payment_country: 'BR',
@@ -130,7 +156,7 @@ class RemotePayuLatamTest < Test::Unit::TestCase
   end
 
   def test_successful_purchase_colombia
-    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(:account_id => '512321', payment_country: 'CO'))
+    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(account_id: '512321', payment_country: 'CO'))
 
     options_colombia = {
       payment_country: 'CO',
@@ -164,7 +190,7 @@ class RemotePayuLatamTest < Test::Unit::TestCase
   end
 
   def test_successful_purchase_mexico
-    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(:account_id => '512324', payment_country: 'MX'))
+    gateway = PayuLatamGateway.new(fixtures(:payu_latam).update(account_id: '512324', payment_country: 'MX'))
 
     options_mexico = {
       payment_country: 'MX',
@@ -211,6 +237,12 @@ class RemotePayuLatamTest < Test::Unit::TestCase
     assert_equal 'DECLINED', response.params['transactionResponse']['state']
   end
 
+  def test_failed_purchase_with_cabal_card
+    response = @gateway.purchase(@amount, @invalid_cabal_card, @options)
+    assert_failure response
+    assert_equal 'DECLINED', response.params['transactionResponse']['state']
+  end
+
   def test_failed_purchase_with_no_options
     response = @gateway.purchase(@amount, @declined_card, {})
     assert_failure response
@@ -226,6 +258,20 @@ class RemotePayuLatamTest < Test::Unit::TestCase
 
   def test_successful_authorize
     response = @gateway.authorize(@amount, @credit_card, @options)
+    assert_success response
+    assert_equal 'APPROVED', response.message
+    assert_match %r(^\d+\|(\w|-)+$), response.authorization
+  end
+
+  def test_successful_authorize_with_naranja_card
+    response = @gateway.authorize(@amount, @naranja_credit_card, @options)
+    assert_success response
+    assert_equal 'APPROVED', response.message
+    assert_match %r(^\d+\|(\w|-)+$), response.authorization
+  end
+
+  def test_successful_authorize_with_cabal_card
+    response = @gateway.authorize(@amount, @cabal_credit_card, @options)
     assert_success response
     assert_equal 'APPROVED', response.message
     assert_match %r(^\d+\|(\w|-)+$), response.authorization
@@ -299,16 +345,6 @@ class RemotePayuLatamTest < Test::Unit::TestCase
     assert_match(/property: parentTransactionId, message: No puede ser vacio/, response.message)
   end
 
-  # If this test fails, support for void may have been added to the sandbox
-  def test_unsupported_test_void_fails_as_expected
-    auth = @gateway.authorize(@amount, @credit_card, @options)
-    assert_success auth
-
-    assert void = @gateway.void(auth.authorization)
-    assert_failure void
-    assert_equal 'Internal payment provider error. ', void.message
-  end
-
   def test_failed_void
     response = @gateway.void('')
     assert_failure response
@@ -319,16 +355,6 @@ class RemotePayuLatamTest < Test::Unit::TestCase
     response = @gateway.void('', language: 'es')
     assert_failure response
     assert_match(/property: parentTransactionId, message: No puede ser vacio/, response.message)
-  end
-
-  # If this test fails, support for captures may have been added to the sandbox
-  def test_unsupported_test_capture_fails_as_expected
-    auth = @gateway.authorize(@amount, @credit_card, @options)
-    assert_success auth
-
-    assert capture = @gateway.capture(@amount, auth.authorization, @options)
-    assert_failure capture
-    assert_equal 'Internal payment provider error. ', capture.message
   end
 
   def test_failed_capture
@@ -366,17 +392,17 @@ class RemotePayuLatamTest < Test::Unit::TestCase
   end
 
   def test_failed_verify_with_specified_amount
-    verify = @gateway.verify(@credit_card, @options.merge(verify_amount: 1699))
+    verify = @gateway.verify(@credit_card, @options.merge(verify_amount: 499))
 
     assert_failure verify
-    assert_equal 'The order value is less than minimum allowed. Minimum value allowed 17 ARS', verify.message
+    assert_equal 'The order value is less than minimum allowed. Minimum value allowed 5 ARS', verify.message
   end
 
   def test_failed_verify_with_specified_language
-    verify = @gateway.verify(@credit_card, @options.merge(verify_amount: 1699, language: 'es'))
+    verify = @gateway.verify(@credit_card, @options.merge(verify_amount: 499, language: 'es'))
 
     assert_failure verify
-    assert_equal 'The order value is less than minimum allowed. Minimum value allowed 17 ARS', verify.message
+    assert_equal 'The order value is less than minimum allowed. Minimum value allowed 5 ARS', verify.message
   end
 
   def test_transcript_scrubbing
@@ -388,5 +414,11 @@ class RemotePayuLatamTest < Test::Unit::TestCase
     assert_scrubbed(@credit_card.number, clean_transcript)
     assert_scrubbed(@credit_card.verification_value.to_s, clean_transcript)
     assert_scrubbed(@gateway.options[:api_key], clean_transcript)
+  end
+
+  def test_successful_store
+    store = @gateway.store(@credit_card, @options)
+    assert_success store
+    assert_equal 'SUCCESS', store.message
   end
 end

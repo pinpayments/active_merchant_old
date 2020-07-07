@@ -1,8 +1,8 @@
 module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class FirstdataE4V27Gateway < Gateway
-      self.test_url = 'https://api.demo.globalgatewaye4.firstdata.com/transaction/v27'
-      self.live_url = 'https://api.globalgatewaye4.firstdata.com/transaction/v27'
+      self.test_url = 'https://api.demo.globalgatewaye4.firstdata.com/transaction/v28'
+      self.live_url = 'https://api.globalgatewaye4.firstdata.com/transaction/v28'
 
       TRANSACTIONS = {
         sale:          '00',
@@ -16,20 +16,20 @@ module ActiveMerchant #:nodoc:
 
       SUCCESS = 'true'
 
-      SENSITIVE_FIELDS = [:cvdcode, :expiry_date, :card_number]
+      SENSITIVE_FIELDS = %i[cvdcode expiry_date card_number]
 
       BRANDS = {
-        :visa => 'Visa',
-        :master => 'Mastercard',
-        :american_express => 'American Express',
-        :jcb => 'JCB',
-        :discover => 'Discover'
+        visa: 'Visa',
+        master: 'Mastercard',
+        american_express: 'American Express',
+        jcb: 'JCB',
+        discover: 'Discover'
       }
 
       DEFAULT_ECI = '07'
 
       self.supported_cardtypes = BRANDS.keys
-      self.supported_countries = ['CA', 'US']
+      self.supported_countries = %w[CA US]
       self.default_currency = 'USD'
       self.homepage_url = 'http://www.firstdata.com'
       self.display_name = 'FirstData Global Gateway e4 v27'
@@ -148,6 +148,7 @@ module ActiveMerchant #:nodoc:
           add_credit_card_token(xml, credit_card_or_store_authorization, options)
         else
           add_credit_card(xml, credit_card_or_store_authorization, options)
+          add_stored_credentials(xml, credit_card_or_store_authorization, options)
         end
 
         add_address(xml, options)
@@ -190,7 +191,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_identification(xml, identification)
-        authorization_num, transaction_tag, _ = identification.split(';')
+        authorization_num, transaction_tag, = identification.split(';')
 
         xml.tag! 'Authorization_Num', authorization_num
         xml.tag! 'Transaction_Tag', transaction_tag
@@ -228,7 +229,7 @@ module ActiveMerchant #:nodoc:
                 (credit_card.respond_to?(:eci) ? credit_card.eci : nil) || options[:eci] || DEFAULT_ECI
               end
 
-        xml.tag! 'Ecommerce_Flag', eci.to_s =~ /^[0-9]+$/ ? eci.to_s.rjust(2, '0') : eci
+        xml.tag! 'Ecommerce_Flag', /^[0-9]+$/.match?(eci.to_s) ? eci.to_s.rjust(2, '0') : eci
       end
 
       def add_credit_card_verification_strings(xml, credit_card, options)
@@ -264,11 +265,11 @@ module ActiveMerchant #:nodoc:
       def add_credit_card_token(xml, store_authorization, options)
         params = store_authorization.split(';')
         credit_card = CreditCard.new(
-          :brand      => params[1],
-          :first_name => params[2],
-          :last_name  => params[3],
-          :month      => params[4],
-          :year       => params[5])
+          brand: params[1],
+          first_name: params[2],
+          last_name: params[3],
+          month: params[4],
+          year: params[5])
 
         xml.tag! 'TransarmorToken', params[0]
         xml.tag! 'Expiry_Date', expdate(credit_card)
@@ -312,6 +313,36 @@ module ActiveMerchant #:nodoc:
         xml.tag!('Level3') { |x| x << options[:level_3] } if options[:level_3]
       end
 
+      def add_stored_credentials(xml, card, options)
+        return unless options[:stored_credential]
+
+        xml.tag! 'StoredCredentials' do
+          xml.tag! 'Indicator', stored_credential_indicator(xml, card, options)
+          if initiator = options.dig(:stored_credential, :initiator)
+            xml.tag! 'Initiation', initiator == 'merchant' ? 'M' : 'C'
+          end
+          if reason_type = options.dig(:stored_credential, :reason_type)
+            xml.tag! 'Schedule', reason_type == 'unscheduled' ? 'U' : 'S'
+          end
+          xml.tag! 'AuthorizationTypeOverride', options[:authorization_type_override] if options[:authorization_type_override]
+          if network_transaction_id = options[:stored_credential][:network_transaction_id]
+            xml.tag! 'TransactionId', network_transaction_id
+          else
+            xml.tag! 'TransactionId', 'new'
+          end
+          xml.tag! 'OriginalAmount', options[:original_amount] if options[:original_amount]
+          xml.tag! 'ProtectbuyIndicator', options[:protectbuy_indicator] if options[:protectbuy_indicator]
+        end
+      end
+
+      def stored_credential_indicator(xml, card, options)
+        if card.brand == 'master' || options.dig(:stored_credential, :initial_transaction) == false
+          'S'
+        else
+          '1'
+        end
+      end
+
       def expdate(credit_card)
         "#{format(credit_card.month, :two_digits)}#{format(credit_card.year, :two_digits)}"
       end
@@ -330,11 +361,11 @@ module ActiveMerchant #:nodoc:
         end
 
         Response.new(successful?(response), message_from(response), response,
-          :test => test?,
-          :authorization => successful?(response) ? response_authorization(action, response, credit_card) : '',
-          :avs_result => {:code => response[:avs]},
-          :cvv_result => response[:cvv2],
-          :error_code => standard_error_code(response)
+          test: test?,
+          authorization: successful?(response) ? response_authorization(action, response, credit_card) : '',
+          avs_result: {code: response[:avs]},
+          cvv_result: response[:cvv2],
+          error_code: standard_error_code(response)
         )
       end
 
@@ -413,10 +444,10 @@ module ActiveMerchant #:nodoc:
 
       def parse_error(error)
         {
-          :transaction_approved => 'false',
-          :error_number => error.code,
-          :error_description => error.body,
-          :ecommerce_error_code => error.body.gsub(/[^\d]/, '')
+          transaction_approved: 'false',
+          error_number: error.code,
+          error_description: error.body,
+          ecommerce_error_code: error.body.gsub(/[^\d]/, '')
         }
       end
 
@@ -438,8 +469,17 @@ module ActiveMerchant #:nodoc:
 
       def parse_elements(response, root)
         root.elements.to_a.each do |node|
-          response[node.name.gsub(/EXact/, 'Exact').underscore.to_sym] = (node.text || '').strip
+          if node.has_elements?
+            parse_elements(response, node)
+          else
+            response[name_node(root, node)] = (node.text || '').strip
+          end
         end
+      end
+
+      def name_node(root, node)
+        parent = root.name unless root.name == 'TransactionResult'
+        "#{parent}#{node.name}".gsub(/EXact/, 'Exact').underscore.to_sym
       end
     end
   end

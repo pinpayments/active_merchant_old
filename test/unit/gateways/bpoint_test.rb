@@ -88,13 +88,23 @@ class BpointTest < Test::Unit::TestCase
 
   def test_successful_void
     @gateway.expects(:ssl_post).returns(successful_void_response)
-    response = @gateway.void(@amount, '')
+    response = @gateway.void('', amount: 300)
     assert_success response
+  end
+
+  def test_void_passes_correct_transaction_reference
+    stub_comms do
+      # transaction number from successful authorize response
+      @gateway.void('219388558', amount: 300)
+    end.check_request do |endpoint, data, headers|
+      assert_match(%r(<OriginalTransactionNumber>219388558</OriginalTransactionNumber>)m, data)
+      assert_match(%r(<Amount>300</Amount>)m, data)
+    end.respond_with(successful_void_response)
   end
 
   def test_failed_void
     @gateway.expects(:ssl_post).returns(failed_void_response)
-    response = @gateway.void(@amount, '')
+    response = @gateway.void('')
     assert_failure response
   end
 
@@ -127,6 +137,15 @@ class BpointTest < Test::Unit::TestCase
       @gateway.authorize(@amount, @credit_card, { biller_code: '1234' })
     end.check_request do |endpoint, data, headers|
       assert_match(%r(<BillerCode>1234</BillerCode>)m, data)
+    end.respond_with(successful_authorize_response)
+  end
+
+  def test_passing_reference_and_crn
+    stub_comms do
+      @gateway.authorize(@amount, @credit_card, @options.merge({ crn1: 'ref' }))
+    end.check_request do |endpoint, data, headers|
+      assert_match(%r(<MerchantReference>1</MerchantReference>)m, data)
+      assert_match(%r(<CRN1>ref</CRN1>)m, data)
     end.respond_with(successful_authorize_response)
   end
 

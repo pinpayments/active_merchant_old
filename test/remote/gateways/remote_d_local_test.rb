@@ -4,8 +4,11 @@ class RemoteDLocalTest < Test::Unit::TestCase
   def setup
     @gateway = DLocalGateway.new(fixtures(:d_local))
 
-    @amount = 100
+    @amount = 200
     @credit_card = credit_card('4111111111111111')
+    @credit_card_naranja = credit_card('5895627823453005')
+    @cabal_credit_card = credit_card('5896 5700 0000 0004')
+    @invalid_cabal_card = credit_card('6035 2277 0000 0000')
     # No test card numbers, all txns are approved by default,
     # but errors can be invoked directly with the `description` field
     @options = {
@@ -23,6 +26,13 @@ class RemoteDLocalTest < Test::Unit::TestCase
       document: '10563145',
       currency: 'ARS'
     }
+    @options_argentina_installments = {
+      billing_address: address(country: 'Argentina'),
+      document: '10563145',
+      currency: 'ARS',
+      installments: '3',
+      installments_id: 'INS54434'
+    }
     @options_mexico = {
       billing_address: address(country: 'Mexico'),
       document: '128475869794933',
@@ -37,6 +47,24 @@ class RemoteDLocalTest < Test::Unit::TestCase
 
   def test_successful_purchase
     response = @gateway.purchase(@amount, @credit_card, @options)
+    assert_success response
+    assert_match 'The payment was paid', response.message
+  end
+
+  def test_successful_purchase_with_installments
+    response = @gateway.purchase(@amount, @credit_card, @options_argentina_installments)
+    assert_success response
+    assert_match 'The payment was paid', response.message
+  end
+
+  def test_successful_purchase_naranja
+    response = @gateway.purchase(@amount, @credit_card_naranja, @options)
+    assert_success response
+    assert_match 'The payment was paid', response.message
+  end
+
+  def test_successful_purchase_cabal
+    response = @gateway.purchase(@amount, @cabal_credit_card, @options)
     assert_success response
     assert_match 'The payment was paid', response.message
   end
@@ -82,10 +110,22 @@ class RemoteDLocalTest < Test::Unit::TestCase
     assert_match 'The payment was paid', response.message
   end
 
+  def test_successful_purchase_partial_address
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(billing_address: address(address1: 'My Street', country: 'Brazil')))
+    assert_success response
+    assert_match 'The payment was paid', response.message
+  end
+
   def test_failed_purchase
     response = @gateway.purchase(@amount, @credit_card, @options.merge(description: '300'))
     assert_failure response
     assert_match 'The payment was rejected', response.message
+  end
+
+  def test_failed_purchase_with_cabal
+    response = @gateway.purchase(@amount, @invalid_cabal_card, @options)
+    assert_failure response
+    assert_match 'Payment not found', response.message
   end
 
   def test_failed_document_format
@@ -96,6 +136,16 @@ class RemoteDLocalTest < Test::Unit::TestCase
 
   def test_successful_authorize_and_capture
     auth = @gateway.authorize(@amount, @credit_card, @options)
+    assert_success auth
+    assert_match 'The payment was authorized', auth.message
+
+    assert capture = @gateway.capture(@amount, auth.authorization, @options)
+    assert_success capture
+    assert_match 'The payment was paid', capture.message
+  end
+
+  def test_successful_authorize_and_capture_with_cabal
+    auth = @gateway.authorize(@amount, @cabal_credit_card, @options)
     assert_success auth
     assert_match 'The payment was authorized', auth.message
 
@@ -115,7 +165,7 @@ class RemoteDLocalTest < Test::Unit::TestCase
     auth = @gateway.authorize(@amount, @credit_card, @options)
     assert_success auth
 
-    assert capture = @gateway.capture(@amount-1, auth.authorization, @options)
+    assert capture = @gateway.capture(@amount - 1, auth.authorization, @options)
     assert_success capture
   end
 
@@ -140,7 +190,7 @@ class RemoteDLocalTest < Test::Unit::TestCase
     purchase = @gateway.purchase(@amount, @credit_card, @options)
     assert_success purchase
 
-    assert refund = @gateway.refund(@amount-1, purchase.authorization, @options.merge(notification_url: 'http://example.com'))
+    assert refund = @gateway.refund(@amount - 1, purchase.authorization, @options.merge(notification_url: 'http://example.com'))
     assert_success refund
   end
 
@@ -148,7 +198,7 @@ class RemoteDLocalTest < Test::Unit::TestCase
     purchase = @gateway.purchase(@amount, @credit_card, @options)
     assert_success purchase
 
-    response = @gateway.refund(@amount+1, purchase.authorization, @options.merge(notification_url: 'http://example.com'))
+    response = @gateway.refund(@amount + 1, purchase.authorization, @options.merge(notification_url: 'http://example.com'))
     assert_failure response
     assert_match 'Amount exceeded', response.message
   end
@@ -163,19 +213,19 @@ class RemoteDLocalTest < Test::Unit::TestCase
   end
 
   def test_failed_void
-    auth = @gateway.authorize(@amount, @credit_card, @options)
-    assert_success auth
-
-    assert capture = @gateway.capture(@amount, auth.authorization, @options)
-    assert_success capture
-
-    response = @gateway.void(auth.authorization)
+    response = @gateway.void('')
     assert_failure response
-    assert_match 'Invalid transaction status', response.message
+    assert_match 'Invalid request', response.message
   end
 
   def test_successful_verify
     response = @gateway.verify(@credit_card, @options)
+    assert_success response
+    assert_match %r{The payment was authorized}, response.message
+  end
+
+  def test_successful_verify_with_cabal
+    response = @gateway.verify(@cabal_credit_card, @options)
     assert_success response
     assert_match %r{The payment was authorized}, response.message
   end
@@ -205,5 +255,4 @@ class RemoteDLocalTest < Test::Unit::TestCase
     assert_scrubbed(@credit_card.verification_value, transcript)
     assert_scrubbed(@gateway.options[:trans_key], transcript)
   end
-
 end

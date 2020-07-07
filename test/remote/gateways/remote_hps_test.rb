@@ -3,10 +3,13 @@ require 'test_helper'
 class RemoteHpsTest < Test::Unit::TestCase
   def setup
     @gateway = HpsGateway.new(fixtures(:hps))
+    @check_gateway = HpsGateway.new(fixtures(:hps_echeck))
 
     @amount = 100
+    @check_amount = 2000
     @declined_amount = 1034
     @credit_card =   credit_card('4000100011112224')
+    @check = check(account_number: '1357902468', routing_number: '122000030', number: '1234', account_type: 'SAVINGS')
 
     @options = {
       order_id: '1',
@@ -17,6 +20,13 @@ class RemoteHpsTest < Test::Unit::TestCase
 
   def test_successful_purchase
     response = @gateway.purchase(@amount, @credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_check_purchase
+    options = @options.merge(company_name: 'Hot Buttered Toast Incorporated')
+    response = @check_gateway.purchase(@check_amount, @check, options)
     assert_success response
     assert_equal 'Success', response.message
   end
@@ -97,7 +107,7 @@ class RemoteHpsTest < Test::Unit::TestCase
     auth = @gateway.authorize(@amount, @credit_card, @options)
     assert_success auth
 
-    assert capture = @gateway.capture(@amount-1, auth.authorization)
+    assert capture = @gateway.capture(@amount - 1, auth.authorization)
     assert_success capture
   end
 
@@ -120,7 +130,7 @@ class RemoteHpsTest < Test::Unit::TestCase
     purchase = @gateway.purchase(@amount, @credit_card, @options)
     assert_success purchase
 
-    assert refund = @gateway.refund(@amount-1, purchase.authorization)
+    assert refund = @gateway.refund(@amount - 1, purchase.authorization)
     assert_success refund
     assert_equal 'Success', refund.params['GatewayRspMsg']
     assert_equal '0', refund.params['GatewayRspCode']
@@ -136,6 +146,16 @@ class RemoteHpsTest < Test::Unit::TestCase
     assert_success auth
 
     assert void = @gateway.void(auth.authorization)
+    assert_success void
+    assert_equal 'Success', void.params['GatewayRspMsg']
+  end
+
+  def test_successful_check_void
+    options = @options.merge(company_name: 'Hot Buttered Toast Incorporated')
+    purchase = @check_gateway.purchase(@check_amount, @check, options)
+    assert_success purchase
+
+    assert void = @check_gateway.void(purchase.authorization, @options.merge(check_void: true))
     assert_success void
     assert_equal 'Success', void.params['GatewayRspMsg']
   end
@@ -260,5 +280,245 @@ class RemoteHpsTest < Test::Unit::TestCase
     assert_scrubbed(@credit_card.number, transcript)
     assert_scrubbed(@credit_card.verification_value, transcript)
     assert_scrubbed(@gateway.options[:secret_api_key], transcript)
+  end
+
+  def test_transcript_scrubbing_with_cryptogram
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      eci: '05',
+      source: :apple_pay
+    )
+    transcript = capture_transcript(@gateway) do
+      @gateway.purchase(@amount, credit_card, @options)
+    end
+    transcript = @gateway.scrub(transcript)
+
+    assert_scrubbed(credit_card.number, transcript)
+    assert_scrubbed(@gateway.options[:secret_api_key], transcript)
+    assert_scrubbed(credit_card.payment_cryptogram, transcript)
+  end
+
+  def test_successful_purchase_with_apple_pay_raw_cryptogram_with_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      eci: '05',
+      source: :apple_pay
+    )
+    assert response = @gateway.purchase(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_purchase_with_apple_pay_raw_cryptogram_without_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      source: :apple_pay
+    )
+    assert response = @gateway.purchase(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_auth_with_apple_pay_raw_cryptogram_with_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      eci: '05',
+      source: :apple_pay
+    )
+    assert response = @gateway.authorize(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_auth_with_apple_pay_raw_cryptogram_without_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      source: :apple_pay
+    )
+    assert response = @gateway.authorize(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_purchase_with_android_pay_raw_cryptogram_with_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      eci: '05',
+      source: :android_pay
+    )
+    assert response = @gateway.purchase(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_purchase_with_android_pay_raw_cryptogram_without_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      source: :android_pay
+    )
+    assert response = @gateway.purchase(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_auth_with_android_pay_raw_cryptogram_with_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      eci: '05',
+      source: :android_pay
+    )
+    assert response = @gateway.authorize(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_auth_with_android_pay_raw_cryptogram_without_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      source: :android_pay
+    )
+    assert response = @gateway.authorize(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_purchase_with_google_pay_raw_cryptogram_with_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      eci: '05',
+      source: :google_pay
+    )
+    assert response = @gateway.purchase(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_purchase_with_google_pay_raw_cryptogram_without_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      source: :google_pay
+    )
+    assert response = @gateway.purchase(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_auth_with_google_pay_raw_cryptogram_with_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      eci: '05',
+      source: :google_pay
+    )
+    assert response = @gateway.authorize(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_successful_auth_with_google_pay_raw_cryptogram_without_eci
+    credit_card = network_tokenization_credit_card('4242424242424242',
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+      verification_value: nil,
+      source: :google_pay
+    )
+    assert response = @gateway.authorize(@amount, credit_card, @options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_three_d_secure_visa
+    @credit_card.number = '4012002000060016'
+    @credit_card.brand = 'visa'
+
+    options = {
+      three_d_secure: {
+        cavv: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+        eci: '05',
+        xid: 'TTBCSkVTa1ZpbDI1bjRxbGk5ODE='
+      }
+    }
+
+    response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_three_d_secure_mastercard
+    @credit_card.number = '5473500000000014'
+    @credit_card.brand = 'master'
+
+    options = {
+      three_d_secure: {
+        cavv: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+        eci: '05',
+        xid: 'TTBCSkVTa1ZpbDI1bjRxbGk5ODE='
+      }
+    }
+
+    response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_three_d_secure_discover
+    @credit_card.number = '6011000990156527'
+    @credit_card.brand = 'discover'
+
+    options = {
+      three_d_secure: {
+        cavv: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+        eci: '05',
+        xid: 'TTBCSkVTa1ZpbDI1bjRxbGk5ODE='
+      }
+    }
+
+    response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_three_d_secure_amex
+    @credit_card.number = '372700699251018'
+    @credit_card.brand = 'american_express'
+
+    options = {
+      three_d_secure: {
+        cavv: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+        eci: '05',
+        xid: 'TTBCSkVTa1ZpbDI1bjRxbGk5ODE='
+      }
+    }
+
+    response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert_equal 'Success', response.message
+  end
+
+  def test_three_d_secure_jcb
+    @credit_card.number = '372700699251018'
+    @credit_card.brand = 'jcb'
+
+    options = {
+      three_d_secure: {
+        cavv: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
+        eci: '05',
+        xid: 'TTBCSkVTa1ZpbDI1bjRxbGk5ODE='
+      }
+    }
+
+    response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert_equal 'Success', response.message
   end
 end

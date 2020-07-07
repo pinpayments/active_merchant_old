@@ -8,8 +8,8 @@ module ActiveMerchant #:nodoc:
       include PaypalCommonAPI
       include PaypalRecurringApi
 
-      self.supported_cardtypes = [:visa, :master, :american_express, :discover]
-      self.supported_countries = ['US']
+      self.supported_countries = %w[CA NZ GB US]
+      self.supported_cardtypes = %i[visa master american_express discover]
       self.homepage_url = 'https://www.paypal.com/us/webapps/mpp/paypal-payments-pro'
       self.display_name = 'PayPal Payments Pro (US)'
 
@@ -55,7 +55,7 @@ module ActiveMerchant #:nodoc:
         billing_address = options[:billing_address] || options[:address]
         currency_code = options[:currency] || currency(money)
 
-        xml = Builder::XmlMarkup.new :indent => 2
+        xml = Builder::XmlMarkup.new indent: 2
         xml.tag! transaction_type + 'Req', 'xmlns' => PAYPAL_NAMESPACE do
           xml.tag! transaction_type + 'Request', 'xmlns:n2' => EBAY_NAMESPACE do
             xml.tag! 'n2:Version', API_VERSION
@@ -90,12 +90,25 @@ module ActiveMerchant #:nodoc:
             xml.tag! 'n2:Payer', options[:email]
             add_address(xml, 'n2:Address', address)
           end
+
+          add_three_d_secure(xml, options) if options[:three_d_secure]
         end
       end
 
       def add_descriptors(xml, options)
         xml.tag! 'n2:SoftDescriptor', options[:soft_descriptor] unless options[:soft_descriptor].blank?
         xml.tag! 'n2:SoftDescriptorCity', options[:soft_descriptor_city] unless options[:soft_descriptor_city].blank?
+      end
+
+      def add_three_d_secure(xml, options)
+        three_d_secure = options[:three_d_secure]
+        xml.tag! 'ThreeDSecureRequest' do
+          xml.tag! 'MpiVendor3ds', 'Y'
+          xml.tag! 'AuthStatus3ds', three_d_secure[:trans_status] unless three_d_secure[:trans_status].blank?
+          xml.tag! 'Cavv', three_d_secure[:cavv] unless three_d_secure[:cavv].blank?
+          xml.tag! 'Eci3ds', three_d_secure[:eci] unless three_d_secure[:eci].blank?
+          xml.tag! 'Xid', three_d_secure[:xid] unless three_d_secure[:xid].blank?
+        end
       end
 
       def credit_card_type(type)

@@ -16,9 +16,19 @@ class CardConnectTest < Test::Unit::TestCase
     }
   end
 
-  def test_incorrect_domain
+  def test_allow_domains_without_ports
+    assert CardConnectGateway.new(username: 'username', password: 'password', merchant_id: 'merchand_id', domain: 'https://vendor.cardconnect.com/test')
+  end
+
+  def test_reject_domains_without_card_connect
     assert_raise(ArgumentError) {
-      CardConnectGateway.new(username: 'username', password: 'password', merchant_id: 'merchand_id', domain: 'www.google.com')
+      CardConnectGateway.new(username: 'username', password: 'password', merchant_id: 'merchand_id', domain: 'https://www.google.com')
+    }
+  end
+
+  def test_reject_domains_without_https
+    assert_raise(ArgumentError) {
+      CardConnectGateway.new(username: 'username', password: 'password', merchant_id: 'merchand_id', domain: 'ttps://cardconnect.com')
     }
   end
 
@@ -197,6 +207,17 @@ class CardConnectTest < Test::Unit::TestCase
   def test_scrub
     assert @gateway.supports_scrubbing?
     assert_equal @gateway.scrub(pre_scrubbed), post_scrubbed
+  end
+
+  def test_frontendid_is_added_to_post_data_parameters
+    @gateway.class.application_id = 'my_app'
+    stub_comms(@gateway, :ssl_request) do
+      @gateway.purchase(@amount, @credit_card, @options)
+    end.check_request do |_, _, body|
+      assert_equal 'my_app', JSON.parse(body)['frontendid']
+    end.respond_with(successful_purchase_response)
+  ensure
+    @gateway.class.application_id = nil
   end
 
   private
