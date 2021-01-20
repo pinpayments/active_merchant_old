@@ -123,7 +123,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_extra_options(post, options)
-        extra = {}
+        extra = options.fetch(:extra, {})
         extra[:ecm] = '32' if options[:recurring]
         extra[:cavv] = options[:cavv] || options.dig(:three_d_secure, :cavv) if options[:cavv] || options.dig(:three_d_secure, :cavv)
         extra[:xid] = options[:xid] || options.dig(:three_d_secure, :xid) if options[:xid] || options.dig(:three_d_secure, :xid)
