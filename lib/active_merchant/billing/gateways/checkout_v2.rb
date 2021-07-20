@@ -1,6 +1,12 @@
 module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class CheckoutV2Gateway < Gateway
+      NETWORK_TOKENIZATION_SOURCES = {
+        apple_pay: ->(_payment_method) { 'applepay' },
+        google_pay: ->(_payment_method) { 'googlepay' },
+        network_token: ->(payment_method) { payment_method.brand == 'visa' ? 'vts' : 'mdes' }
+      }.freeze
+
       self.display_name = 'Checkout.com Unified Payments'
       self.homepage_url = 'https://www.checkout.com/'
       self.live_url = 'https://api.checkout.com'
@@ -80,7 +86,7 @@ module ActiveMerchant #:nodoc:
         add_payment_method(post, payment_method, options)
         add_customer_data(post, options)
         add_transaction_data(post, options)
-        add_3ds(post, options)
+        add_3ds(post, options) unless payment_method.is_a?(NetworkTokenizationCreditCard)
         add_processing_channel(post, options)
         add_marketplace_data(post, options)
       end
@@ -100,12 +106,14 @@ module ActiveMerchant #:nodoc:
 
       def add_payment_method(post, payment_method, options)
         post[:source] = {}
-        if payment_method.is_a?(NetworkTokenizationCreditCard) && payment_method.source == :network_token
+        if payment_method.is_a?(NetworkTokenizationCreditCard) && NETWORK_TOKENIZATION_SOURCES.keys.include?(payment_method.source)
           post[:source][:type] = 'network_token'
           post[:source][:token] = payment_method.number
-          post[:source][:token_type] = payment_method.brand == 'visa' ? 'vts' : 'mdes'
-          post[:source][:cryptogram] = payment_method.payment_cryptogram
-          post[:source][:eci] = options[:eci] || '05'
+          post[:source][:token_type] = NETWORK_TOKENIZATION_SOURCES.fetch(
+            payment_method.source
+          ).call(payment_method)
+          post[:source][:eci] = payment_method.eci || options[:eci] || '05'
+          post[:source][:cryptogram] = payment_method.payment_cryptogram if payment_method.payment_cryptogram
         else
           post[:source][:type] = 'card'
           post[:source][:name] = payment_method.name
