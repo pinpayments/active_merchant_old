@@ -354,7 +354,7 @@ class IxopayTest < Test::Unit::TestCase
     response = stub_comms do
       @gateway.authorize(14200, @credit_card, @options.merge(currency: 'KWD'))
     end.check_request do |_endpoint, data, _headers|
-      assert_match(/<amount>14.200<\/amount>/, data)
+      assert_match(/<amount>142.00<\/amount>/, data)
       assert_match(/<currency>KWD<\/currency>/, data)
     end.respond_with(successful_authorize_response)
 

@@ -82,7 +82,9 @@ class FatZebraTest < Test::Unit::TestCase
     stub_comms(@gateway, :ssl_request) do
       @gateway.purchase(@amount, @credit_card, @options.merge(recurring: true))
     end.check_request do |_method, _endpoint, data, _headers|
-      assert_match(%r("extra":{"ecm":"32"), data)
+      request_data = JSON.parse(data)
+
+      assert_match(request_data['extra']['ecm'], '32')
     end.respond_with(successful_purchase_response)
   end
 

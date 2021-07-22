@@ -526,12 +526,12 @@ class BlueSnapTest < Test::Unit::TestCase
 
     # Check all 0 decimal currencies
     ActiveMerchant::Billing::BlueSnapGateway.currencies_without_fractions.each do |currency|
-      assert_equal '12', check_amount_registered(amount, currency)
+      assert_equal '12.34', check_amount_registered(amount, currency)
     end
 
     # Check all 3 decimal currencies
     ActiveMerchant::Billing::BlueSnapGateway.currencies_with_three_decimal_places.each do |currency|
-      assert_equal '1.234', check_amount_registered(amount, currency)
+      assert_equal '12.34', check_amount_registered(amount, currency)
     end
   end
 

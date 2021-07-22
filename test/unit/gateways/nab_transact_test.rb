@@ -157,7 +157,7 @@ class NabTransactTest < Test::Unit::TestCase
     stub_comms(@gateway, :ssl_request) do
       @gateway.authorize(10000, @credit_card, @options.merge(currency: 'JPY'))
     end.check_request do |_method, _endpoint, data, _headers|
-      assert_match(/<amount>100<\/amount>/, data)
+      assert_match(/<amount>10000<\/amount>/, data)
     end.respond_with(successful_authorize_response)
   end
 

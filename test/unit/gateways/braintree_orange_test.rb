@@ -28,7 +28,7 @@ class BraintreeOrangeTest < Test::Unit::TestCase
     response = stub_comms do
       @gateway.purchase(100, @credit_card, @options.merge(currency: 'JPY'))
     end.check_request do |_endpoint, data, _headers|
-      refute_match(/amount=1.00/, data)
+      refute_match(/amount=100/, data)
     end.respond_with(successful_purchase_response)
 
     assert_success response

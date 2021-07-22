@@ -114,7 +114,7 @@ class EwayRapidTest < Test::Unit::TestCase
     stub_comms do
       @gateway.purchase(100, @credit_card, currency: 'JPY')
     end.check_request do |_endpoint, data, _headers|
-      assert_match '"TotalAmount":"1"', data
+      assert_match '"TotalAmount":"100"', data
     end.respond_with(successful_purchase_response)
   end
 

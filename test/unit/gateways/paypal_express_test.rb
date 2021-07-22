@@ -299,15 +299,15 @@ class PaypalExpressTest < Test::Unit::TestCase
   end
 
   def test_amount_format_for_jpy_currency
-    @gateway.expects(:ssl_post).with(anything, regexp_matches(/n2:OrderTotal currencyID=.JPY.>1<\/n2:OrderTotal>/), {}).returns(successful_authorization_response)
+    @gateway.expects(:ssl_post).with(anything, regexp_matches(/n2:OrderTotal currencyID=.JPY.>1.00<\/n2:OrderTotal>/), {}).returns(successful_authorization_response)
     response = @gateway.authorize(100, token: 'EC-6WS104951Y388951L', payer_id: 'FWRVKNRRZ3WUC', currency: 'JPY')
     assert response.success?
   end
 
-  def test_removes_fractional_amounts_with_twd_currency
+  def test_does_not_remove_fractional_amounts_with_twd_currency
     xml = REXML::Document.new(@gateway.send(:build_setup_request, 'SetExpressCheckout', 150, { currency: 'TWD' }))
 
-    assert_equal '1', REXML::XPath.first(xml, '//n2:OrderTotal').text
+    assert_equal '1.50', REXML::XPath.first(xml, '//n2:OrderTotal').text
   end
 
   def test_fractional_discounts_are_correctly_calculated_with_jpy_currency
@@ -336,10 +336,10 @@ class PaypalExpressTest < Test::Unit::TestCase
         tax: 0
       }))
 
-    assert_equal '142', REXML::XPath.first(xml, '//n2:OrderTotal').text
-    assert_equal '142', REXML::XPath.first(xml, '//n2:ItemTotal').text
+    assert_equal '142.50', REXML::XPath.first(xml, '//n2:OrderTotal').text
+    assert_equal '142.50', REXML::XPath.first(xml, '//n2:ItemTotal').text
     amounts = REXML::XPath.match(xml, '//n2:Amount')
-    assert_equal '150', amounts[0].text
+    assert_equal '150.00', amounts[0].text
     assert_equal '-8', amounts[1].text
   end
 
@@ -369,10 +369,10 @@ class PaypalExpressTest < Test::Unit::TestCase
         tax: 0
       }))
 
-    assert_equal '143', REXML::XPath.first(xml, '//n2:OrderTotal').text
-    assert_equal '143', REXML::XPath.first(xml, '//n2:ItemTotal').text
+    assert_equal '143.00', REXML::XPath.first(xml, '//n2:OrderTotal').text
+    assert_equal '143.00', REXML::XPath.first(xml, '//n2:ItemTotal').text
     amounts = REXML::XPath.match(xml, '//n2:Amount')
-    assert_equal '150', amounts[0].text
+    assert_equal '150.00', amounts[0].text
     assert_equal '-7', amounts[1].text
   end
 

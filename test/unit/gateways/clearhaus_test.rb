@@ -270,7 +270,7 @@ class ClearhausTest < Test::Unit::TestCase
     stub_comms do
       @gateway.authorize(200, @credit_card, @options.merge(currency: 'JPY'))
     end.check_request do |_endpoint, data, _headers|
-      assert_match(/amount=2&card/, data)
+      assert_match(/amount=200&card/, data)
     end.respond_with(successful_authorize_response)
   end
 

@@ -571,7 +571,7 @@ class AdyenTest < Test::Unit::TestCase
     stub_comms do
       @gateway.authorize(200, @credit_card, @options.merge(currency: 'JPY'))
     end.check_request do |_endpoint, data, _headers|
-      assert_match(/"amount\":{\"value\":\"2\",\"currency\":\"JPY\"}/, data)
+      assert_match(/"amount\":{\"value\":\"200\",\"currency\":\"JPY\"}/, data)
     end.respond_with(successful_authorize_response)
 
     stub_comms do
