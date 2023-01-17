@@ -335,6 +335,47 @@ class CheckoutV2Test < Test::Unit::TestCase
         transaction_indicator: 2,
         previous_charge_id: 'pay_123',
         processing_channel_id: 'pc_123',
+        amount_allocations: [
+          {
+            id: 'ent_123',
+            amount: 49
+          },
+          {
+            id: 'ent_456',
+            amount: 51
+          },
+          # shall be omitted as invalid
+          {
+            id: 'ent_789'
+          }
+        ]
+      }
+      @gateway.authorize(@amount, @credit_card, options)
+    end.check_request do |_endpoint, data, _headers|
+      assert_match(%r{"stored":"true"}, data)
+      assert_match(%r{"payment_type":"Recurring"}, data)
+      assert_match(%r{"previous_payment_id":"pay_123"}, data)
+      assert_match(%r{"processing_channel_id":"pc_123"}, data)
+      assert_match(/"amount_allocations\":\[{\"id\":\"ent_123\",\"amount\":49},{\"id\":\"ent_456\",\"amount\":51}\]/, data)
+    end.respond_with(successful_authorize_response)
+
+    assert_success response
+    assert_equal 'pay_fj3xswqe3emuxckocjx6td73ni', response.authorization
+
+    capture = stub_comms do
+      @gateway.capture(@amount, response.authorization)
+    end.respond_with(successful_capture_response)
+
+    assert_success capture
+  end
+
+  def test_successful_authorize_and_capture_with_additional_options_marketplace
+    response = stub_comms do
+      options = {
+        card_on_file: true,
+        transaction_indicator: 2,
+        previous_charge_id: 'pay_123',
+        processing_channel_id: 'pc_123',
         marketplace: {
           sub_entity_id: 'ent_123'
         }
