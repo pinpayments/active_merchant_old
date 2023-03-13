@@ -197,6 +197,9 @@ checkout_v2:
   secret_key: SECRET_KEY_FOR_BASIC_TRANSACTIONS
   client_id: CLIENT_ID_FOR_OAUTH_TRANSACTIONS
   client_secret: CLIENT_SECRET_FOR_OAUTH_TRANSACTIONS
+  processing_channel_id: pc_lxgl7aqahkzubkundd2l546hdm
+  entity_id: ent_123
+  source_id: ca_123
 
 citrus_pay:
   userid: CPF00001
