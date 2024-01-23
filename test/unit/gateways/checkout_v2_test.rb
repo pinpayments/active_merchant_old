@@ -21,6 +21,7 @@ class CheckoutV2Test < Test::Unit::TestCase
 
     @credit_card = credit_card
     @amount = 100
+    @token = '2MPedsuenG2o8yFfrsdOBWmOuEf'
   end
 
   def test_successful_purchase
@@ -453,6 +454,52 @@ class CheckoutV2Test < Test::Unit::TestCase
 
     assert_success response
     assert_equal 'Succeeded', response.message
+  end
+
+  def test_successful_purchase_with_extra_customer_data
+    stub_comms(@gateway, :ssl_request) do
+      options = {
+        phone_country_code: '1',
+        billing_address: address
+      }
+      @gateway.purchase(@amount, @credit_card, options)
+    end.check_request do |_method, _endpoint, data, _headers|
+      request = JSON.parse(data)
+      assert_equal request['source']['phone']['number'], '(555)555-5555'
+      assert_equal request['source']['phone']['country_code'], '1'
+      assert_equal request['customer']['name'], 'Longbob Longsen'
+    end.respond_with(successful_purchase_response)
+  end
+
+  def test_no_customer_name_included_in_token_purchase
+    stub_comms(@gateway, :ssl_request) do
+      options = {
+        phone_country_code: '1',
+        billing_address: address
+      }
+      @gateway.purchase(@amount, @token, options)
+    end.check_request do |_method, _endpoint, data, _headers|
+      request = JSON.parse(data)
+      assert_equal request['source']['phone']['number'], '(555)555-5555'
+      assert_equal request['source']['phone']['country_code'], '1'
+      refute_includes data, 'name'
+    end.respond_with(successful_purchase_response)
+  end
+
+  def test_successful_purchase_with_risk_data
+    stub_comms(@gateway, :ssl_request) do
+      options = {
+        risk: {
+          enabled: true,
+          device_session_id: dsid_ipsmclhxwq72phhr32iwfvrflm
+        }
+      }
+      @gateway.purchase(@amount, @token, options)
+    end.check_request do |_method, _endpoint, data, _headers|
+      request = JSON.parse(data)
+      assert_equal request['risk']['enabled'], true
+      assert_equal request['risk']['device_session_id'], 'dsid_ipsmclhxwq72phhr32iwfvrflm'
+    end.respond_with(successful_purchase_response)
   end
 
   def test_successful_purchase_with_metadata

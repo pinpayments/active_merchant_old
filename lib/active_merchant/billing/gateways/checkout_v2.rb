@@ -109,6 +109,8 @@ module ActiveMerchant #:nodoc:
         add_authorization_type(post, options)
         add_payment_method(post, payment_method, options)
         add_customer_data(post, options)
+        add_extra_customer_data(post, payment_method, options)
+        add_risk_data(post, options)
         add_stored_credential_options(post, options)
         add_transaction_data(post, options)
         add_3ds(post, options)
@@ -195,6 +197,24 @@ module ActiveMerchant #:nodoc:
           post[:source][:billing_address][:state] = address[:state] unless address[:state].blank?
           post[:source][:billing_address][:country] = address[:country] unless address[:country].blank?
           post[:source][:billing_address][:zip] = address[:zip] unless address[:zip].blank?
+        end
+      end
+
+      # created a separate method for these fields because they should not be included
+      # in all transaction types that include methods with source and customer fields
+      def add_extra_customer_data(post, payment_method, options)
+        post[:source][:phone] = {}
+        post[:source][:phone][:number] = options[:phone] || options.dig(:billing_address, :phone) || options.dig(:billing_address, :phone_number)
+        post[:source][:phone][:country_code] = options[:phone_country_code] if options[:phone_country_code]
+        post[:customer][:name] = payment_method.name if payment_method.respond_to?(:name)
+      end
+
+      def add_risk_data(post, options)
+        risk = options[:risk]
+        if risk.present?
+          post[:risk] = {}
+          post[:risk][:enabled] = risk[:enabled] || true
+          post[:risk][:device_session_id] = risk[:device_session_id] if risk[:device_session_id].present?
         end
       end
 

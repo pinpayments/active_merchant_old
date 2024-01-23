@@ -123,6 +123,16 @@ class RemoteCheckoutV2Test < Test::Unit::TestCase
         authentication_response_status: 'Y'
       }
     )
+    @extra_customer_data = @options.merge(
+      phone_country_code: '1',
+      phone: '9108675309'
+    )
+    @additional_options_risk = @options.merge(
+      risk: {
+        enabled: true,
+        device_session_id: 'dsid_ipsmclhxwq72phhr32iwfvrflm'
+      }
+    )
   end
 
   def gateway
@@ -360,6 +370,12 @@ class RemoteCheckoutV2Test < Test::Unit::TestCase
     assert_equal 'Y', response.cvv_result['code']
   end
 
+  def test_successful_purchase_with_extra_customer_data
+    response = @gateway.purchase(@amount, @credit_card, @extra_customer_data)
+    assert_success response
+    assert_equal 'Succeeded', response.message
+  end
+
   def test_successful_authorize_includes_cvv_result
     response = gateway.authorize(@amount, @credit_card, @options)
     assert_success response
@@ -454,6 +470,12 @@ class RemoteCheckoutV2Test < Test::Unit::TestCase
 
   def test_successful_purchase_with_ip
     response = gateway.purchase(@amount, @credit_card, @option.merge(ip: '96.125.185.52'))
+    assert_success response
+    assert_equal 'Succeeded', response.message
+  end
+
+  def test_successful_purchase_with_risk_object
+    response = gateway_oauth.purchase(@amount, @apple_pay_network_token, @additional_options_risk)
     assert_success response
     assert_equal 'Succeeded', response.message
   end
