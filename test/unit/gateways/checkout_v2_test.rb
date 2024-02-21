@@ -491,7 +491,7 @@ class CheckoutV2Test < Test::Unit::TestCase
       options = {
         risk: {
           enabled: true,
-          device_session_id: dsid_ipsmclhxwq72phhr32iwfvrflm
+          device_session_id: 'dsid_ipsmclhxwq72phhr32iwfvrflm'
         }
       }
       @gateway.purchase(@amount, @token, options)
