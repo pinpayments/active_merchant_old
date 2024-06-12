@@ -16,7 +16,7 @@ class PayeezyGateway < Test::Unit::TestCase
       ta_token: '123'
     }
     @options_stored_credentials = {
-      cardbrand_original_transaction_id: 'abc123',
+      cardbrand_original_transaction_id: 'original_transaction_id_abc123',
       sequence: 'FIRST',
       is_scheduled: true,
       initiator: 'MERCHANT',
@@ -24,7 +24,7 @@ class PayeezyGateway < Test::Unit::TestCase
     }
     @options_standardized_stored_credentials = {
       stored_credential: {
-        network_transaction_id: 'abc123',
+        network_transaction_id: 'stored_credential_abc123',
         initial_transaction: false,
         reason_type: 'recurring',
         initiator: 'cardholder'
@@ -51,6 +51,16 @@ class PayeezyGateway < Test::Unit::TestCase
       payment_cryptogram: 'YwAAAAAABaYcCMX/OhNRQAAAAAA=',
       month: '11',
       year: '2022',
+      eci: 5,
+      source: :apple_pay,
+      verification_value: 569
+    )
+    @apple_pay_card_amex = network_tokenization_credit_card(
+      '373953192351004',
+      brand: 'american_express',
+      payment_cryptogram: 'YwAAAAAABaYcCMX/OhNRQAAAAAA=',
+      month: '11',
+      year: Time.now.year + 1,
       eci: 5,
       source: :apple_pay,
       verification_value: 569
@@ -88,8 +98,15 @@ class PayeezyGateway < Test::Unit::TestCase
   end
 
   def test_successful_purchase
-    @gateway.expects(:ssl_post).returns(successful_purchase_response)
-    assert response = @gateway.purchase(@amount, @credit_card, @options)
+    @credit_card.first_name = nil
+    @credit_card.last_name = nil
+
+    response = stub_comms do
+      @gateway.purchase(@amount, @credit_card, @options)
+    end.check_request do |_endpoint, data, _headers|
+      request = JSON.parse(data)
+      assert_equal 'Jim Smith', request.dig('credit_card', 'cardholder_name')
+    end.respond_with(successful_purchase_response)
     assert_success response
     assert_equal 'ET114541|55083431|credit_card|1', response.authorization
     assert response.test?
@@ -104,6 +121,29 @@ class PayeezyGateway < Test::Unit::TestCase
       assert_equal request['method'], '3DS'
       assert_equal request['3DS']['type'], 'D'
       assert_equal request['3DS']['wallet_provider_id'], 'APPLE_PAY'
+    end.respond_with(successful_purchase_response)
+  end
+
+  def test_successful_purchase_with_apple_pay_no_cryptogram
+    @apple_pay_card.payment_cryptogram = ''
+    @apple_pay_card.eci = nil
+    stub_comms do
+      @gateway.purchase(@amount, @apple_pay_card, @options)
+    end.check_request do |_endpoint, data, _headers|
+      request = JSON.parse(data)
+      assert_equal request['eci_indicator'], '5'
+      assert_nil request['3DS']['xid']
+      assert_nil request['3DS']['cavv']
+    end.respond_with(successful_purchase_response)
+  end
+
+  def test_successful_purchase_with_apple_pay_amex
+    stub_comms do
+      @gateway.purchase(@amount, @apple_pay_card_amex, @options)
+    end.check_request do |_endpoint, data, _headers|
+      request = JSON.parse(data)
+      assert request['3DS']['cavv'], @apple_pay_card_amex.payment_cryptogram
+      assert_nil request['3DS']['xid']
     end.respond_with(successful_purchase_response)
   end
 
@@ -188,11 +228,34 @@ class PayeezyGateway < Test::Unit::TestCase
     assert_success response
   end
 
+  def test_successful_purchase_with_customer_ref_top_level
+    options = @options.merge(customer_ref: 'abcde')
+    response = stub_comms do
+      @gateway.purchase(@amount, @credit_card, options)
+    end.check_request do |_endpoint, data, _headers|
+      assert_match(/"customer_ref":"abcde"/, data)
+    end.respond_with(successful_purchase_response)
+
+    assert_success response
+  end
+
+  def test_successful_purchase_with_reference_3
+    options = @options.merge(reference_3: '12345')
+    response = stub_comms do
+      @gateway.purchase(@amount, @credit_card, options)
+    end.check_request do |_endpoint, data, _headers|
+      assert_match(/"reference_3":"12345"/, data)
+    end.respond_with(successful_purchase_response)
+
+    assert_success response
+  end
+
   def test_successful_purchase_with_stored_credentials
     response = stub_comms do
       @gateway.purchase(@amount, @credit_card, @options.merge(@options_stored_credentials))
     end.check_request do |_endpoint, data, _headers|
-      assert_match(/stored_credentials/, data)
+      stored_credentials = JSON.parse(data)['stored_credentials']['cardbrand_original_transaction_id']
+      assert_equal stored_credentials, 'original_transaction_id_abc123'
     end.respond_with(successful_purchase_stored_credentials_response)
 
     assert_success response
@@ -204,7 +267,38 @@ class PayeezyGateway < Test::Unit::TestCase
     response = stub_comms do
       @gateway.purchase(@amount, @credit_card, @options.merge(@options_standardized_stored_credentials))
     end.check_request do |_endpoint, data, _headers|
-      assert_match(/stored_credentials/, data)
+      stored_credentials = JSON.parse(data)['stored_credentials']['cardbrand_original_transaction_id']
+      assert_equal stored_credentials, 'stored_credential_abc123'
+    end.respond_with(successful_purchase_stored_credentials_response)
+
+    assert_success response
+    assert response.test?
+    assert_equal 'Transaction Normal - Approved', response.message
+  end
+
+  def test_successful_purchase_with__stored_credential_and_cardbrand_original_transaction_id
+    options = @options_standardized_stored_credentials.merge!(cardbrand_original_transaction_id: 'original_transaction_id_abc123')
+
+    response = stub_comms do
+      @gateway.purchase(@amount, @credit_card, @options.merge(options))
+    end.check_request do |_endpoint, data, _headers|
+      stored_credentials = JSON.parse(data)['stored_credentials']['cardbrand_original_transaction_id']
+      assert_equal stored_credentials, 'original_transaction_id_abc123'
+    end.respond_with(successful_purchase_stored_credentials_response)
+
+    assert_success response
+    assert response.test?
+    assert_equal 'Transaction Normal - Approved', response.message
+  end
+
+  def test_successful_purchase_with_no_ntid
+    @options_standardized_stored_credentials[:stored_credential].delete(:network_transaction_id)
+
+    response = stub_comms do
+      @gateway.purchase(@amount, @credit_card, @options.merge(@options_standardized_stored_credentials))
+    end.check_request do |_endpoint, data, _headers|
+      stored_credentials = JSON.parse(data)['stored_credentials']
+      assert_equal stored_credentials.include?(:cardbrand_original_transaction_id), false
     end.respond_with(successful_purchase_stored_credentials_response)
 
     assert_success response
@@ -778,7 +872,7 @@ class PayeezyGateway < Test::Unit::TestCase
         body_exist: true
       message:
     RESPONSE
-    YAML.safe_load(yamlexcep, ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
+    YAML.safe_load(yamlexcep, permitted_classes: ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
   end
 
   def failed_purchase_response_for_insufficient_funds
@@ -863,7 +957,7 @@ class PayeezyGateway < Test::Unit::TestCase
         body_exist: true
       message:
     RESPONSE
-    YAML.safe_load(yamlexcep, ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
+    YAML.safe_load(yamlexcep, permitted_classes: ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
   end
 
   def successful_void_response
@@ -908,7 +1002,7 @@ class PayeezyGateway < Test::Unit::TestCase
         body_exist: true
       message:
     RESPONSE
-    YAML.safe_load(yamlexcep, ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
+    YAML.safe_load(yamlexcep, permitted_classes: ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
   end
 
   def failed_capture_response
@@ -948,7 +1042,7 @@ class PayeezyGateway < Test::Unit::TestCase
         body_exist: true
       message:
     RESPONSE
-    YAML.safe_load(yamlexcep, ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
+    YAML.safe_load(yamlexcep, permitted_classes: ['Net::HTTPBadRequest', 'ActiveMerchant::ResponseError'])
   end
 
   def invalid_token_response
@@ -987,7 +1081,7 @@ class PayeezyGateway < Test::Unit::TestCase
         body_exist: true
       message:
     RESPONSE
-    YAML.safe_load(yamlexcep, ['Net::HTTPUnauthorized', 'ActiveMerchant::ResponseError'])
+    YAML.safe_load(yamlexcep, permitted_classes: ['Net::HTTPUnauthorized', 'ActiveMerchant::ResponseError'])
   end
 
   def invalid_token_response_integration
@@ -1012,7 +1106,7 @@ class PayeezyGateway < Test::Unit::TestCase
         body_exist: true
       message:
     RESPONSE
-    YAML.safe_load(yamlexcep, ['Net::HTTPUnauthorized', 'ActiveMerchant::ResponseError'])
+    YAML.safe_load(yamlexcep, permitted_classes: ['Net::HTTPUnauthorized', 'ActiveMerchant::ResponseError'])
   end
 
   def bad_credentials_response
@@ -1037,6 +1131,6 @@ class PayeezyGateway < Test::Unit::TestCase
         body_exist: true
       message:
     RESPONSE
-    YAML.safe_load(yamlexcep, ['Net::HTTPForbidden', 'ActiveMerchant::ResponseError'])
+    YAML.safe_load(yamlexcep, permitted_classes: ['Net::HTTPForbidden', 'ActiveMerchant::ResponseError'])
   end
 end

@@ -1,15 +1,5 @@
 require 'test_helper'
 
-module ActiveMerchant #:nodoc:
-  module Billing #:nodoc:
-    class Shift4Gateway
-      def setup_access_token
-        '12345678'
-      end
-    end
-  end
-end
-
 class Shift4Test < Test::Unit::TestCase
   include CommStub
   def setup
@@ -23,7 +13,8 @@ class Shift4Test < Test::Unit::TestCase
       tax: '2',
       customer_reference: 'D019D09309F2',
       destination_postal_code: '94719',
-      product_descriptors: %w(Hamburger Fries Soda Cookie)
+      product_descriptors: %w(Hamburger Fries Soda Cookie),
+      order_id: '123456'
     }
     @customer_address = {
       address1: '123 Street',
@@ -73,6 +64,7 @@ class Shift4Test < Test::Unit::TestCase
       request = JSON.parse(data)
       assert_equal request['clerk']['numericId'], @extra_options[:clerk_id]
       assert_equal request['transaction']['notes'], @extra_options[:notes]
+      assert_equal request['transaction']['vendorReference'], @extra_options[:order_id]
       assert_equal request['amount']['tax'], @extra_options[:tax].to_f
       assert_equal request['amount']['total'], (@amount / 100.0).to_s
       assert_equal request['transaction']['purchaseCard']['customerReference'], @extra_options[:customer_reference]
@@ -231,6 +223,18 @@ class Shift4Test < Test::Unit::TestCase
     assert_equal response.message, 'Transaction successful'
   end
 
+  def test_successful_credit
+    stub_comms do
+      @gateway.refund(@amount, @credit_card, @options.merge!(invoice: '4666309473', expiration_date: '1235'))
+    end.check_request do |_endpoint, data, _headers|
+      request = JSON.parse(data)
+      assert_equal request['card']['present'], 'N'
+      assert_equal request['card']['expirationDate'], @credit_card.expiry_date.expiration.strftime('%m%y')
+      assert_nil request['card']['entryMode']
+      assert_nil request['customer']
+    end.respond_with(successful_refund_response)
+  end
+
   def test_successful_void
     @gateway.expects(:ssl_request).returns(successful_void_response)
     response = @gateway.void('123')
@@ -241,9 +245,12 @@ class Shift4Test < Test::Unit::TestCase
 
   def test_failed_purchase
     @gateway.expects(:ssl_request).returns(failed_purchase_response)
+    response = @gateway.purchase(@amount, @credit_card, @options)
 
-    response = @gateway.purchase(@amount, 'abc', @options)
     assert_failure response
+    assert_equal response.message, 'Transaction declined'
+    assert_equal 'A', response.avs_result['code']
+    assert_equal 'Street address matches, but postal code does not match.', response.avs_result['message']
     assert_nil response.authorization
   end
 
@@ -253,6 +260,27 @@ class Shift4Test < Test::Unit::TestCase
     response = @gateway.authorize(@amount, @credit_card, @options)
     assert_failure response
     assert_nil response.authorization
+    assert response.test?
+  end
+
+  def test_failed_authorize_with_host_response
+    response = stub_comms do
+      @gateway.authorize(@amount, @credit_card)
+    end.respond_with(failed_authorize_with_host_response)
+
+    assert_failure response
+    assert_equal 'CVV value N not accepted.', response.message
+    assert response.test?
+  end
+
+  def test_successful_authorize_with_avs_result
+    response = stub_comms do
+      @gateway.authorize(@amount, @credit_card)
+    end.respond_with(successful_authorize_response)
+
+    assert_success response
+    assert_equal 'Y', response.avs_result['code']
+    assert_equal 'Street address and 5-digit postal code match.', response.avs_result['message']
     assert response.test?
   end
 
@@ -268,9 +296,10 @@ class Shift4Test < Test::Unit::TestCase
   def test_failed_refund
     @gateway.expects(:ssl_request).returns(failed_refund_response)
 
-    response = @gateway.refund(@amount, 'abc', @options)
+    response = @gateway.refund(1919, @credit_card, @options)
     assert_failure response
-    assert_nil response.authorization
+    assert_equal response.error_code, 'D'
+    assert_equal response.message, 'Transaction declined'
     assert response.test?
   end
 
@@ -363,6 +392,22 @@ class Shift4Test < Test::Unit::TestCase
   def test_scrub
     assert @gateway.supports_scrubbing?
     assert_equal @gateway.scrub(pre_scrubbed), post_scrubbed
+  end
+
+  def test_setup_access_token_should_rise_an_exception_under_unsuccessful_request
+    @gateway.expects(:ssl_post).returns(failed_auth_response)
+
+    error = assert_raises(ActiveMerchant::OAuthResponseError) do
+      @gateway.setup_access_token
+    end
+
+    assert_match(/Failed with  AuthToken not valid ENGINE22CE/, error.message)
+  end
+
+  def test_setup_access_token_should_successfully_extract_the_token_from_response
+    @gateway.expects(:ssl_post).returns(sucess_auth_response)
+
+    assert_equal 'abc123', @gateway.setup_access_token
   end
 
   private
@@ -604,6 +649,12 @@ class Shift4Test < Test::Unit::TestCase
                 "transaction": {
                     "authorizationCode": "OK168Z",
                     "authSource": "E",
+                    "avs": {
+                      "postalCodeVerified":"Y",
+                      "result":"Y",
+                      "streetVerified":"Y",
+                      "valid":"Y"
+                      },
                     "invoice": "3333333309",
                     "purchaseCard": {
                         "customerReference": "457",
@@ -900,18 +951,78 @@ class Shift4Test < Test::Unit::TestCase
   def failed_purchase_response
     <<-RESPONSE
       {
-          "result": [
-              {
-                  "error": {
-                      "longText": "Token contains invalid characters UTGAPI08CE",
-                      "primaryCode": 9864,
-                      "shortText": "Invalid Token"
-                  },
-                  "server": {
-                      "name": "UTGAPI08CE"
-                  }
+        "result": [
+          {
+            "dateTime":"2024-01-12T15:11:10.000-08:00",
+            "receiptColumns":30,
+            "amount": {
+              "total":15000000
+            },
+            "card": {
+              "type":"VS",
+              "entryMode":"M",
+              "number":"XXXXXXXXXXXX2224",
+              "present":"N",
+              "securityCode": {
+                "result":"M",
+                "valid":"Y"
+              },
+              "token": {
+                "value":"2224028jbvt7g0ne"
               }
-          ]
+            },
+            "clerk": {
+              "numericId":1
+            },
+            "customer": {
+              "firstName":"John",
+              "lastName":"Smith"
+            },
+            "device": {
+              "capability": {
+                "magstripe":"Y",
+                "manualEntry":"Y"
+              }
+            },
+            "merchant": {
+              "mid":8628968,
+              "name":"Spreedly - ECom"
+            },
+            "receipt": [
+              {
+                "key":"MaskedPAN",
+                "printValue":"XXXXXXXXXXXX2224"
+              },
+              {
+                "key":"CardEntryMode",
+                "printName":"ENTRY METHOD",
+                "printValue":"KEYED"
+              },
+              {
+                "key":"SignatureRequired",
+                "printValue":"N"
+              }
+            ],
+            "server": {
+              "name":"UTGAPI11CE"
+            },
+            "transaction": {
+              "authSource":"E",
+              "avs": {
+                "postalCodeVerified":"N",
+                "result":"A",
+                "streetVerified":"Y",
+                "valid":"Y"
+                },
+              "invoice":"0705626580",
+              "responseCode":"D",
+              "saleFlag":"S"
+            },
+            "universalToken": {
+              "value":"400010-2F1AA405-001AA4-000026B7-1766C44E9E8"
+            }
+          }
+        ]
       }
     RESPONSE
   end
@@ -938,19 +1049,68 @@ class Shift4Test < Test::Unit::TestCase
   def failed_refund_response
     <<-RESPONSE
       {
-          "result": [
-              {
-                  "error": {
-                      "longText": "record not posted ENGINE21CE",
-                      "primaryCode": 9844,
-                      "shortText": "I/O ERROR"
-                  },
-                  "server": {
-                      "name": "UTGAPI05CE"
-                  }
-              }
+        "result":
+          [
+            {
+              "dateTime": "2024-01-05T13:38:03.000-08:00",
+              "receiptColumns": 30,
+              "amount": {
+                "total": 19.19
+              },
+              "card": {
+                "type": "VS",
+                "entryMode": "M",
+                "number": "XXXXXXXXXXXX2224",
+                "present": "N",
+                "token": {
+                  "value": "2224htm77ctttszk"
+                }
+              },
+              "clerk": {
+                "numericId": 1
+              },
+              "device": {
+                "capability": {
+                  "magstripe": "Y",
+                  "manualEntry": "Y"
+                }
+              },
+              "merchant": {
+                "name": "Spreedly - ECom"
+              },
+              "receipt": [
+                {
+                  "key": "MaskedPAN",
+                  "printValue": "XXXXXXXXXXXX2224"
+                },
+                {
+                  "key": "CardEntryMode",
+                  "printName": "ENTRY METHOD",
+                  "printValue": "KEYED"
+                },
+                {
+                  "key": "SignatureRequired",
+                  "printValue": "N"
+                }
+              ],
+              "server":
+                {
+                  "name": "UTGAPI04CE"
+                },
+              "transaction":
+                {
+                  "authSource": "E",
+                  "invoice": "0704283292",
+                  "responseCode": "D",
+                  "saleFlag": "C"
+                },
+              "universalToken":
+                {
+                  "value": "400010-2F1AA405-001AA4-000026B7-1766C44E9E8"
+                }
+            }
           ]
-      }
+        }
     RESPONSE
   end
 
@@ -995,6 +1155,126 @@ class Shift4Test < Test::Unit::TestCase
           }
         ]
       }
+    RESPONSE
+  end
+
+  def failed_auth_response
+    <<-RESPONSE
+      {
+        "result": [
+          {
+            "error": {
+              "longText": "AuthToken not valid ENGINE22CE",
+              "primaryCode": 9862,
+              "secondaryCode": 4,
+              "shortText ": "AuthToken"
+            },
+            "server": {
+              "name": "UTGAPI03CE"
+            }
+          }
+        ]
+      }
+    RESPONSE
+  end
+
+  def failed_auth_response_no_message
+    <<-RESPONSE
+      {
+        "result": [
+          {
+            "error": {
+              "secondaryCode": 4,
+              "shortText ": "AuthToken"
+            },
+            "server": {
+              "name": "UTGAPI03CE"
+            }
+          }
+        ]
+      }
+    RESPONSE
+  end
+
+  def sucess_auth_response
+    <<-RESPONSE
+      {
+        "result": [
+          {
+            "credential": {
+              "accessToken": "abc123"
+            }
+          }
+        ]
+      }
+    RESPONSE
+  end
+
+  def failed_authorize_with_host_response
+    <<-RESPONSE
+     {
+      "result": [
+        {
+          "dateTime": "2022-09-16T01:40:51.000-07:00",
+          "card": {
+            "type": "VS",
+            "entryMode": "M",
+            "number": "XXXXXXXXXXXX2224",
+            "present": "N",
+            "securityCode": {
+              "result": "M",
+              "valid": "Y"
+            },
+            "token": {
+              "value": "2224xzsetmjksx13"
+            }
+          },
+          "customer": {
+            "firstName": "John",
+            "lastName": "Smith"
+          },
+          "device": {
+            "capability": {
+              "magstripe": "Y",
+              "manualEntry": "Y"
+            }
+          },
+          "merchant": {
+            "name": "Spreedly - ECom"
+          },
+          "server": {
+            "name": "UTGAPI12CE"
+          },
+          "transaction": {
+            "authSource":"E",
+            "avs": {
+              "postalCodeVerified":"Y",
+              "result":"Y",
+              "streetVerified":"Y",
+              "valid":"Y"
+              },
+            "cardOnFile": {
+              "transactionId":"010512168564062",
+              "indicator":"01",
+              "scheduledIndicator":"02",
+              "usageIndicator":"01"
+              },
+            "invoice":"0704938459384",
+            "hostResponse": {
+              "reasonCode":"N7",
+              "reasonDescription":"CVV value N not accepted."
+              },
+            "responseCode":"D",
+            "retrievalReference":"400500170391",
+            "saleFlag":"S",
+            "vendorReference":"2490464558001"
+          },
+          "universalToken": {
+            "value": "400010-2F1AA405-001AA4-000026B7-1766C44E9E8"
+          }
+        }
+      ]
+     }
     RESPONSE
   end
 end

@@ -2,18 +2,22 @@ module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class GlobalCollectGateway < Gateway
       class_attribute :preproduction_url
+      class_attribute :ogone_direct_test
+      class_attribute :ogone_direct_live
 
-      self.display_name = 'GlobalCollect'
+      self.display_name = 'Worldline (formerly GlobalCollect)'
       self.homepage_url = 'http://www.globalcollect.com/'
 
       self.test_url = 'https://eu.sandbox.api-ingenico.com'
-      self.preproduction_url = 'https://world.preprod.api-ingenico.com'
-      self.live_url = 'https://world.api-ingenico.com'
+      self.preproduction_url = 'https://api.preprod.connect.worldline-solutions.com'
+      self.live_url = 'https://api.connect.worldline-solutions.com'
+      self.ogone_direct_test = 'https://payment.preprod.direct.worldline-solutions.com'
+      self.ogone_direct_live = 'https://payment.direct.worldline-solutions.com'
 
       self.supported_countries = %w[AD AE AG AI AL AM AO AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BW BY BZ CA CC CD CF CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HN HR HT HU ID IE IL IM IN IS IT JM JO JP KE KG KH KI KM KN KR KW KY KZ LA LB LC LI LK LR LS LT LU LV MA MC MD ME MF MG MH MK MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PL PN PS PT PW QA RE RO RS RU RW SA SB SC SE SG SH SI SJ SK SL SM SN SR ST SV SZ TC TD TG TH TJ TL TM TN TO TR TT TV TW TZ UA UG US UY UZ VC VE VG VI VN WF WS ZA ZM ZW]
       self.default_currency = 'USD'
       self.money_format = :cents
-      self.supported_cardtypes = %i[visa master american_express discover naranja cabal]
+      self.supported_cardtypes = %i[visa master american_express discover naranja cabal tuya]
 
       def initialize(options = {})
         requires!(options, :merchant_id, :api_key_id, :secret_api_key)
@@ -36,6 +40,7 @@ module ActiveMerchant #:nodoc:
         add_creator_info(post, options)
         add_fraud_fields(post, options)
         add_external_cardholder_authentication_data(post, options)
+        add_threeds_exemption_data(post, options)
         commit(:post, :authorize, post, options: options)
       end
 
@@ -97,8 +102,8 @@ module ActiveMerchant #:nodoc:
         'diners_club' => '132',
         'cabal' => '135',
         'naranja' => '136',
-        'apple_pay': '302',
-        'google_pay': '320'
+        apple_pay: '302',
+        google_pay: '320'
       }
 
       def add_order(post, money, options, capture: false)
@@ -114,7 +119,7 @@ module ActiveMerchant #:nodoc:
         post['order']['references']['invoiceData'] = {
           'invoiceNumber' => options[:invoice]
         }
-        add_airline_data(post, options)
+        add_airline_data(post, options) unless ogone_direct?
         add_lodging_data(post, options)
         add_number_of_installments(post, options) if options[:number_of_installments]
       end
@@ -134,6 +139,7 @@ module ActiveMerchant #:nodoc:
         airline_data['isThirdParty'] = options[:airline_data][:is_third_party] if options[:airline_data][:is_third_party]
         airline_data['issueDate'] = options[:airline_data][:issue_date] if options[:airline_data][:issue_date]
         airline_data['merchantCustomerId'] = options[:airline_data][:merchant_customer_id] if options[:airline_data][:merchant_customer_id]
+        airline_data['agentNumericCode'] = options[:airline_data][:agent_numeric_code] if options[:airline_data][:agent_numeric_code]
         airline_data['flightLegs'] = add_flight_legs(airline_options)
         airline_data['passengers'] = add_passengers(airline_options)
 
@@ -248,9 +254,10 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_amount(post, money, options = {})
+        currency_ogone = 'EUR' if ogone_direct?
         post['amountOfMoney'] = {
           'amount' => amount(money),
-          'currencyCode' => options[:currency] || currency(money)
+          'currencyCode' => options[:currency] || currency_ogone || currency(money)
         }
       end
 
@@ -262,7 +269,7 @@ module ActiveMerchant #:nodoc:
         product_id = options[:payment_product_id] || BRAND_MAP[payment.brand]
         specifics_inputs = {
           'paymentProductId' => product_id,
-          'skipAuthentication' => 'true', # refers to 3DSecure
+          'skipAuthentication' => options[:skip_authentication] || 'true', # refers to 3DSecure
           'skipFraudService' => 'true',
           'authorizationMode' => pre_authorization
         }
@@ -270,7 +277,7 @@ module ActiveMerchant #:nodoc:
         if payment.is_a?(NetworkTokenizationCreditCard)
           add_mobile_credit_card(post, payment, options, specifics_inputs, expirydate)
         elsif payment.is_a?(CreditCard)
-          options[:google_pay_pan_only] ? add_mobile_credit_card(post, payment, options, specifics_inputs, expirydate) : add_credit_card(post, payment, specifics_inputs, expirydate)
+          add_credit_card(post, payment, specifics_inputs, expirydate)
         end
       end
 
@@ -286,31 +293,32 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_mobile_credit_card(post, payment, options, specifics_inputs, expirydate)
-        specifics_inputs['paymentProductId'] = options[:google_pay_pan_only] ? BRAND_MAP[:google_pay] : BRAND_MAP[payment.source]
+        specifics_inputs['paymentProductId'] = BRAND_MAP[payment.source]
         post['mobilePaymentMethodSpecificInput'] = specifics_inputs
-        add_decrypted_payment_data(post, payment, options, expirydate)
+
+        if options[:use_encrypted_payment_data]
+          post['mobilePaymentMethodSpecificInput']['encryptedPaymentData'] = payment.payment_data
+        else
+          add_decrypted_payment_data(post, payment, options, expirydate)
+        end
       end
 
       def add_decrypted_payment_data(post, payment, options, expirydate)
-        if payment.is_a?(NetworkTokenizationCreditCard) && payment.payment_cryptogram
-          data = {
-            'cardholderName' => payment.name,
-            'cryptogram' => payment.payment_cryptogram,
-            'eci' => payment.eci,
-            'expiryDate' => expirydate,
-            'dpan' => payment.number
-          }
-          data['paymentMethod'] = 'TOKENIZED_CARD' if payment.source == :google_pay
-        # else case when google payment is an ONLY_PAN, doesn't have cryptogram or eci.
-        elsif options[:google_pay_pan_only]
-          data = {
-            'cardholderName' => payment.name,
-            'expiryDate' => expirydate,
-            'pan' => payment.number,
-            'paymentMethod' => 'CARD'
-          }
-        end
-        post['mobilePaymentMethodSpecificInput']['decryptedPaymentData'] = data if data
+        data_type = payment.source == :apple_pay ? 'decrypted' : 'encrypted'
+        data = case payment.source
+               when :apple_pay
+                 {
+                   'cardholderName' => payment.name,
+                   'cryptogram' => payment.payment_cryptogram,
+                   'eci' => payment.eci,
+                   'expiryDate' => expirydate,
+                   'dpan' => payment.number
+                 }
+               when :google_pay
+                 payment.payment_data
+               end
+
+        post['mobilePaymentMethodSpecificInput']["#{data_type}PaymentData"] = data if data
       end
 
       def add_customer_data(post, options, payment = nil)
@@ -321,8 +329,8 @@ module ActiveMerchant #:nodoc:
         post['order']['customer']['merchantCustomerId'] = options[:customer] if options[:customer]
         post['order']['customer']['companyInformation']['name'] = options[:company] if options[:company]
         post['order']['customer']['contactDetails']['emailAddress'] = options[:email] if options[:email]
-        if address = options[:billing_address] || options[:address]
-          post['order']['customer']['contactDetails']['phoneNumber'] = address[:phone] if address[:phone]
+        if address = options[:billing_address] || options[:address] && (address[:phone])
+          post['order']['customer']['contactDetails']['phoneNumber'] = address[:phone]
         end
       end
 
@@ -332,8 +340,8 @@ module ActiveMerchant #:nodoc:
             'countryCode' => address[:country]
           }
           post['customer']['contactDetails']['emailAddress'] = options[:email] if options[:email]
-          if address = options[:billing_address] || options[:address]
-            post['customer']['contactDetails']['phoneNumber'] = address[:phone] if address[:phone]
+          if address = options[:billing_address] || options[:address] && (address[:phone])
+            post['customer']['contactDetails']['phoneNumber'] = address[:phone]
           end
         end
       end
@@ -342,7 +350,8 @@ module ActiveMerchant #:nodoc:
         shipping_address = options[:shipping_address]
         if billing_address = options[:billing_address] || options[:address]
           post['order']['customer']['billingAddress'] = {
-            'street' => truncate(billing_address[:address1], 50),
+            'street' => truncate(split_address(billing_address[:address1])[1], 50),
+            'houseNumber' => split_address(billing_address[:address1])[0],
             'additionalInfo' => truncate(billing_address[:address2], 50),
             'zip' => billing_address[:zip],
             'city' => billing_address[:city],
@@ -352,7 +361,8 @@ module ActiveMerchant #:nodoc:
         end
         if shipping_address
           post['order']['customer']['shippingAddress'] = {
-            'street' => truncate(shipping_address[:address1], 50),
+            'street' => truncate(split_address(shipping_address[:address1])[1], 50),
+            'houseNumber' => split_address(shipping_address[:address1])[0],
             'additionalInfo' => truncate(shipping_address[:address2], 50),
             'zip' => shipping_address[:zip],
             'city' => shipping_address[:city],
@@ -369,7 +379,6 @@ module ActiveMerchant #:nodoc:
       def add_fraud_fields(post, options)
         fraud_fields = {}
         fraud_fields.merge!(options[:fraud_fields]) if options[:fraud_fields]
-        fraud_fields[:customerIpAddress] = options[:ip] if options[:ip]
 
         post['fraudFields'] = fraud_fields unless fraud_fields.empty?
       end
@@ -377,19 +386,31 @@ module ActiveMerchant #:nodoc:
       def add_external_cardholder_authentication_data(post, options)
         return unless threeds_2_options = options[:three_d_secure]
 
-        authentication_data = {}
-        authentication_data[:acsTransactionId] = threeds_2_options[:acs_transaction_id] if threeds_2_options[:acs_transaction_id]
-        authentication_data[:cavv] = threeds_2_options[:cavv] if threeds_2_options[:cavv]
-        authentication_data[:cavvAlgorithm] = threeds_2_options[:cavv_algorithm] if threeds_2_options[:cavv_algorithm]
-        authentication_data[:directoryServerTransactionId] = threeds_2_options[:ds_transaction_id] if threeds_2_options[:ds_transaction_id]
-        authentication_data[:eci] = threeds_2_options[:eci] if threeds_2_options[:eci]
-        authentication_data[:threeDSecureVersion] = threeds_2_options[:version] if threeds_2_options[:version]
-        authentication_data[:validationResult] = threeds_2_options[:authentication_response_status] if threeds_2_options[:authentication_response_status]
-        authentication_data[:xid] = threeds_2_options[:xid] if threeds_2_options[:xid]
+        authentication_data = {
+          priorThreeDSecureData: { acsTransactionId: threeds_2_options[:acs_transaction_id] }.compact,
+          cavv: threeds_2_options[:cavv],
+          cavvAlgorithm: threeds_2_options[:cavv_algorithm],
+          directoryServerTransactionId: threeds_2_options[:ds_transaction_id],
+          eci: threeds_2_options[:eci],
+          threeDSecureVersion: threeds_2_options[:version] || options[:three_ds_version],
+          validationResult: threeds_2_options[:authentication_response_status],
+          xid: threeds_2_options[:xid],
+          acsTransactionId: threeds_2_options[:acs_transaction_id],
+          flow: threeds_2_options[:flow]
+        }.compact
 
         post['cardPaymentMethodSpecificInput'] ||= {}
         post['cardPaymentMethodSpecificInput']['threeDSecure'] ||= {}
+        post['cardPaymentMethodSpecificInput']['threeDSecure']['merchantFraudRate'] = threeds_2_options[:merchant_fraud_rate]
+        post['cardPaymentMethodSpecificInput']['threeDSecure']['exemptionRequest'] = threeds_2_options[:exemption_request]
+        post['cardPaymentMethodSpecificInput']['threeDSecure']['secureCorporatePayment'] = threeds_2_options[:secure_corporate_payment]
         post['cardPaymentMethodSpecificInput']['threeDSecure']['externalCardholderAuthenticationData'] = authentication_data unless authentication_data.empty?
+      end
+
+      def add_threeds_exemption_data(post, options)
+        return unless options[:three_ds_exemption_type]
+
+        post['cardPaymentMethodSpecificInput']['transactionChannel'] = 'MOTO' if options[:three_ds_exemption_type] == 'moto'
       end
 
       def add_number_of_installments(post, options)
@@ -402,17 +423,28 @@ module ActiveMerchant #:nodoc:
 
       def url(action, authorization)
         return preproduction_url + uri(action, authorization) if @options[:url_override].to_s == 'preproduction'
+        return ogone_direct_url(action, authorization) if ogone_direct?
 
         (test? ? test_url : live_url) + uri(action, authorization)
       end
 
+      def ogone_direct_url(action, authorization)
+        (test? ? ogone_direct_test : ogone_direct_live) + uri(action, authorization)
+      end
+
+      def ogone_direct?
+        @options[:url_override].to_s == 'ogone_direct'
+      end
+
       def uri(action, authorization)
-        uri = "/v1/#{@options[:merchant_id]}/"
+        version = ogone_direct? ? 'v2' : 'v1'
+        uri = "/#{version}/#{@options[:merchant_id]}/"
         case action
         when :authorize
           uri + 'payments'
         when :capture
-          uri + "payments/#{authorization}/approve"
+          capture_name = ogone_direct? ? 'capture' : 'approve'
+          uri + "payments/#{authorization}/#{capture_name}"
         when :refund
           uri + "payments/#{authorization}/refund"
         when :void
@@ -423,7 +455,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def idempotency_key_for_signature(options)
-        "x-gcs-idempotence-key:#{options[:idempotency_key]}" if options[:idempotency_key]
+        "x-gcs-idempotence-key:#{options[:idempotency_key]}" if options[:idempotency_key] && !ogone_direct?
       end
 
       def commit(method, action, post, authorization: nil, options: {})
@@ -461,7 +493,7 @@ module ActiveMerchant #:nodoc:
           'Date' => date
         }
 
-        headers['X-GCS-Idempotence-Key'] = options[:idempotency_key] if options[:idempotency_key]
+        headers['X-GCS-Idempotence-Key'] = options[:idempotency_key] if options[:idempotency_key] && !ogone_direct?
         headers
       end
 
@@ -474,13 +506,13 @@ module ActiveMerchant #:nodoc:
           #{uri(action, authorization)}
         REQUEST
         data = data.each_line.reject { |line| line.strip == '' }.join
-        digest = OpenSSL::Digest.new('sha256')
+        digest = OpenSSL::Digest.new('SHA256')
         key = @options[:secret_api_key]
-        "GCS v1HMAC:#{@options[:api_key_id]}:#{Base64.strict_encode64(OpenSSL::HMAC.digest(digest, key, data))}"
+        "GCS v1HMAC:#{@options[:api_key_id]}:#{Base64.strict_encode64(OpenSSL::HMAC.digest(digest, key, data)).strip}"
       end
 
       def date
-        @date ||= Time.now.gmtime.strftime('%a, %d %b %Y %H:%M:%S %Z') # Must be same in digest and HTTP header
+        @date ||= Time.now.gmtime.strftime('%a, %d %b %Y %H:%M:%S GMT')
       end
 
       def content_type
@@ -489,8 +521,6 @@ module ActiveMerchant #:nodoc:
 
       def success_from(action, response)
         return false if response['errorId'] || response['error_message']
-
-        return %w(CAPTURED CAPTURE_REQUESTED).include?(response.dig('payment', 'status')) if response.dig('payment', 'paymentOutput', 'paymentMethod') == 'mobile'
 
         case action
         when :authorize

@@ -175,6 +175,16 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
     assert_equal 'This transaction has been approved', response.message
   end
 
+  def test_successful_purchase_with_surcharge
+    options = @options.merge(surcharge: {
+      amount: 20,
+      description: 'test description'
+    })
+    response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert_equal 'This transaction has been approved', response.message
+  end
+
   def test_successful_purchase_with_customer
     response = @gateway.purchase(@amount, @credit_card, @options.merge(customer: 'abcd_123'))
     assert_success response
@@ -414,6 +424,16 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
     assert response.authorization
   end
 
+  def test_successful_purchase_with_phone_number
+    @options[:billing_address][:phone] = nil
+    @options[:billing_address][:phone_number] = '5554443210'
+    response = @gateway.purchase(@amount, @credit_card, @options)
+    assert_success response
+    assert response.test?
+    assert_equal 'This transaction has been approved', response.message
+    assert response.authorization
+  end
+
   def test_successful_verify
     response = @gateway.verify(@credit_card, @options)
     assert_success response
@@ -448,8 +468,7 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
   end
 
   def test_successful_verify_with_apple_pay
-    credit_card = network_tokenization_credit_card('4242424242424242',
-      payment_cryptogram: '111111111100cryptogram')
+    credit_card = network_tokenization_credit_card('4242424242424242', payment_cryptogram: '111111111100cryptogram')
     response = @gateway.verify(credit_card, @options)
     assert_success response
     assert_equal 'This transaction has been approved', response.message
@@ -825,6 +844,18 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
     assert_match %r{The transaction cannot be found}, refund.message, 'Only allowed to refund transactions that have settled.  This is the best we can do for now testing wise.'
   end
 
+  def test_successful_echeck_refund_truncates_long_account_name
+    check_with_long_name = check(name: 'Michelangelo Donatello-Raphael')
+    purchase = @gateway.purchase(@amount, check_with_long_name, @options)
+    assert_success purchase
+
+    @options.update(first_name: check_with_long_name.first_name, last_name: check_with_long_name.last_name, routing_number: check_with_long_name.routing_number,
+                    account_number: check_with_long_name.account_number, account_type: check_with_long_name.account_type)
+    refund = @gateway.refund(@amount, purchase.authorization, @options)
+    assert_failure refund
+    assert_match %r{The transaction cannot be found}, refund.message, 'Only allowed to refund transactions that have settled.  This is the best we can do for now testing wise.'
+  end
+
   def test_failed_credit
     response = @gateway.credit(@amount, @declined_card, @options)
     assert_failure response
@@ -850,9 +881,11 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
   end
 
   def test_successful_authorize_and_capture_with_network_tokenization
-    credit_card = network_tokenization_credit_card('4000100011112224',
+    credit_card = network_tokenization_credit_card(
+      '4000100011112224',
       payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
-      verification_value: nil)
+      verification_value: nil
+    )
     auth = @gateway.authorize(@amount, credit_card, @options)
     assert_success auth
     assert_equal 'This transaction has been approved', auth.message
@@ -862,9 +895,11 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
   end
 
   def test_successful_refund_with_network_tokenization
-    credit_card = network_tokenization_credit_card('4000100011112224',
+    credit_card = network_tokenization_credit_card(
+      '4000100011112224',
       payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
-      verification_value: nil)
+      verification_value: nil
+    )
 
     purchase = @gateway.purchase(@amount, credit_card, @options)
     assert_success purchase
@@ -877,9 +912,11 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
   end
 
   def test_successful_credit_with_network_tokenization
-    credit_card = network_tokenization_credit_card('4000100011112224',
-      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
-      verification_value: nil)
+    credit_card = network_tokenization_credit_card(
+      '5424000000000015',
+      payment_cryptogram: 'EjRWeJASNFZ4kBI0VniQEjRWeJA=',
+      verification_value: nil
+    )
 
     response = @gateway.credit(@amount, credit_card, @options)
     assert_success response
@@ -888,10 +925,12 @@ class RemoteAuthorizeNetTest < Test::Unit::TestCase
   end
 
   def test_network_tokenization_transcript_scrubbing
-    credit_card = network_tokenization_credit_card('4111111111111111',
+    credit_card = network_tokenization_credit_card(
+      '4111111111111111',
       brand: 'visa',
       eci: '05',
-      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=')
+      payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk='
+    )
 
     transcript = capture_transcript(@gateway) do
       @gateway.authorize(@amount, credit_card, @options)

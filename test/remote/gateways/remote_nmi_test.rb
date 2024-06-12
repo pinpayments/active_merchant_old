@@ -10,13 +10,15 @@ class RemoteNmiTest < Test::Unit::TestCase
       routing_number: '123123123',
       account_number: '123123123'
     )
-    @apple_pay_card = network_tokenization_credit_card('4111111111111111',
+    @apple_pay_card = network_tokenization_credit_card(
+      '4111111111111111',
       payment_cryptogram: 'EHuWW9PiBkWvqE5juRwDzAUFBAk=',
       month: '01',
       year: '2024',
       source: :apple_pay,
       eci: '5',
-      transaction_id: '123456789')
+      transaction_id: '123456789'
+    )
     @options = {
       order_id: generate_unique_id,
       billing_address: address,
@@ -185,6 +187,26 @@ class RemoteNmiTest < Test::Unit::TestCase
 
   def test_successful_purchase_with_descriptors
     options = @options.merge({ descriptors: @descriptor_options })
+
+    assert response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert response.test?
+    assert_equal 'Succeeded', response.message
+    assert response.authorization
+  end
+
+  def test_successful_purchase_with_shipping_fields
+    options = @options.merge({ shipping_address: shipping_address, shipping_email: 'test@example.com' })
+
+    assert response = @gateway.purchase(@amount, @credit_card, options)
+    assert_success response
+    assert response.test?
+    assert_equal 'Succeeded', response.message
+    assert response.authorization
+  end
+
+  def test_successful_purchase_with_surcharge
+    options = @options.merge({ surcharge: '1.00' })
 
     assert response = @gateway.purchase(@amount, @credit_card, options)
     assert_success response
@@ -362,6 +384,18 @@ class RemoteNmiTest < Test::Unit::TestCase
     assert network_transaction_id = purchase.params['transactionid']
 
     used_options = stored_credential_options(:merchant, :recurring, id: network_transaction_id)
+    assert purchase = @gateway.purchase(@amount, @credit_card, used_options)
+    assert_success purchase
+  end
+
+  def test_purchase_using_ntid_override_mit
+    initial_options = stored_credential_options(:cardholder, :recurring, :initial)
+    assert purchase = @gateway.purchase(@amount, @credit_card, initial_options)
+    assert_success purchase
+    assert network_transaction_id = purchase.params['transactionid']
+
+    @options[:network_transaction_id] = network_transaction_id
+    used_options = stored_credential_options(:merchant, :recurring)
     assert purchase = @gateway.purchase(@amount, @credit_card, used_options)
     assert_success purchase
   end

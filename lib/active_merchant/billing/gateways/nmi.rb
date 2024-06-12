@@ -8,7 +8,7 @@ module ActiveMerchant #:nodoc:
       self.test_url = self.live_url = 'https://secure.networkmerchants.com/api/transact.php'
       self.default_currency = 'USD'
       self.money_format = :dollars
-      self.supported_countries = ['US']
+      self.supported_countries = %w[US CA]
       self.supported_cardtypes = %i[visa master american_express discover]
       self.homepage_url = 'http://nmi.com/'
       self.display_name = 'NMI'
@@ -149,6 +149,7 @@ module ActiveMerchant #:nodoc:
 
       def add_invoice(post, money, options)
         post[:amount] = amount(money)
+        post[:surcharge] = options[:surcharge] if options[:surcharge]
         post[:orderid] = options[:order_id]
         post[:orderdescription] = options[:description]
         post[:currency] = options[:currency] || currency(money)
@@ -211,7 +212,8 @@ module ActiveMerchant #:nodoc:
         else
           post[:stored_credential_indicator] = 'used'
           # should only send :initial_transaction_id if it is a MIT
-          post[:initial_transaction_id] = stored_credential[:network_transaction_id] if post[:initiated_by] == 'merchant'
+          ntid = options[:network_transaction_id] || stored_credential[:network_transaction_id]
+          post[:initial_transaction_id] = ntid if post[:initiated_by] == 'merchant'
         end
       end
 
@@ -232,6 +234,9 @@ module ActiveMerchant #:nodoc:
         end
 
         if (shipping_address = options[:shipping_address])
+          first_name, last_name = split_names(shipping_address[:name])
+          post[:shipping_firstname] = first_name if first_name
+          post[:shipping_lastname] = last_name if last_name
           post[:shipping_company] = shipping_address[:company]
           post[:shipping_address1] = shipping_address[:address1]
           post[:shipping_address2] = shipping_address[:address2]
@@ -240,6 +245,7 @@ module ActiveMerchant #:nodoc:
           post[:shipping_country] = shipping_address[:country]
           post[:shipping_zip] = shipping_address[:zip]
           post[:shipping_phone] = shipping_address[:phone]
+          post[:shipping_email] = options[:shipping_email] if options[:shipping_email]
         end
 
         if (descriptor = options[:descriptors])
@@ -329,8 +335,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def headers
-        headers = { 'Content-Type' => 'application/x-www-form-urlencoded;charset=UTF-8' }
-        headers
+        { 'Content-Type' => 'application/x-www-form-urlencoded;charset=UTF-8' }
       end
 
       def post_data(action, params)
@@ -342,7 +347,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def parse(body)
-        Hash[CGI::parse(body).map { |k, v| [k.intern, v.first] }]
+        CGI::parse(body).map { |k, v| [k.intern, v.first] }.to_h
       end
 
       def success_from(response)

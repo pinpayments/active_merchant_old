@@ -67,6 +67,7 @@ module ActiveMerchant #:nodoc:
       def verify(credit_card, options = {})
         post = {}
         post[:ReferenceId] = options[:reference_id] || generate_unique_id
+        post[:Flow] = 'direct'
         post[:MerchantId] = options[:merchant_id] || @credentials[:merchant_id]
         post[:StatementDescriptor] = options[:statement_descriptor] if options[:statement_descriptor]
         post[:CustomerId] = options[:customer_id] if options[:customer_id]
@@ -76,6 +77,7 @@ module ActiveMerchant #:nodoc:
         add_metadata(post, options[:metadata])
         add_amount(money, post, options)
         add_browser_details(post, options)
+        add_invoice_number(post, options)
 
         commit('/verify', post, options)
       end
@@ -90,7 +92,8 @@ module ActiveMerchant #:nodoc:
           gsub(%r(("Number\\?"\s*:\s*\\?")[^"]*)i, '\1[FILTERED]').
           gsub(%r(("Cvc\\?"\s*:\s*\\?")[^"]*)i, '\1[FILTERED]').
           gsub(%r(("InvoiceNumber\\?"\s*:\s*\\?")[^"]*)i, '\1[FILTERED]').
-          gsub(%r(("MerchantId\\?"\s*:\s*\\?")[^"]*)i, '\1[FILTERED]')
+          gsub(%r(("MerchantId\\?"\s*:\s*\\?")[^"]*)i, '\1[FILTERED]').
+          gsub(%r(("Cryptogram\\?"\s*:\s*\\?")[^"]*)i, '\1[FILTERED]')
       end
 
       private
@@ -105,12 +108,14 @@ module ActiveMerchant #:nodoc:
         post[:Installments] = options[:installments] if options[:installments]
         post[:StatementDescriptor] = options[:statement_descriptor] if options[:statement_descriptor]
         post[:CustomerId] = options[:customer_id] if options[:customer_id]
+        post[:Flow] = 'direct'
 
         add_payment_method(post, payment, options)
         add_items(post, options[:items])
         add_metadata(post, options[:metadata])
         add_amount(money, post, options)
         add_browser_details(post, options)
+        add_invoice_number(post, options)
       end
 
       def header(parameters = {})
@@ -186,6 +191,10 @@ module ActiveMerchant #:nodoc:
         post[:BrowserDetails][:IpAddress] = browser_details[:ip] if browser_details[:ip]
       end
 
+      def add_invoice_number(post, options)
+        post[:InvoiceNumber] = options[:invoice_number] if options[:invoice_number]
+      end
+
       def add_payment_method(post, payment, options)
         post[:paymentMethod] = {}
 
@@ -199,6 +208,7 @@ module ActiveMerchant #:nodoc:
 
           add_card_holder(post[:paymentMethod][:Card], payment, options)
         end
+        post[:paymentMethod][:Card][:Cryptogram] = payment.payment_cryptogram if payment&.is_a?(NetworkTokenizationCreditCard)
       end
 
       def add_card_holder(card, payment, options)
