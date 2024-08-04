@@ -262,6 +262,16 @@ class AdyenTest < Test::Unit::TestCase
     assert_failure response
   end
 
+  def test_failure_authorize_with_transient_error
+    @gateway.instance_variable_set(:@response_headers, { 'transient-error' => 'error_will_robinson' })
+    @gateway.expects(:ssl_post).returns(failed_authorize_response)
+
+    response = @gateway.authorize(@amount, @credit_card, @options)
+    assert_failure response
+    assert response.params['response_headers']['transient_error'], 'error_will_robinson'
+    assert response.test?
+  end
+
   def test_standard_error_code_mapping
     @gateway.expects(:ssl_post).returns(failed_billing_field_response)
 
@@ -350,6 +360,16 @@ class AdyenTest < Test::Unit::TestCase
     response = @gateway.send(:commit, 'authorise', {}, {})
 
     assert_equal 'Refused | 01: Refer to card issuer', response.message
+    assert_equal '01', response.error_code
+    assert_failure response
+  end
+
+  def test_failed_fraud_raw_refusal
+    @gateway.expects(:ssl_post).returns(failed_fraud_visa_response)
+
+    response = @gateway.send(:commit, 'authorise', {}, {})
+
+    assert_equal 'N7', response.error_code
     assert_failure response
   end
 
@@ -359,6 +379,7 @@ class AdyenTest < Test::Unit::TestCase
     response = @gateway.send(:commit, 'authorise', {}, {})
 
     assert_equal 'Refused | 01 : New account information available', response.message
+    assert_equal '01', response.error_code
     assert_failure response
   end
 
@@ -1908,6 +1929,20 @@ class AdyenTest < Test::Unit::TestCase
       "additionalData":
       {
         "refusalReasonRaw": "01: Refer to card issuer"
+       },
+       "refusalReason": "Refused",
+       "pspReference":"8514775559925128",
+       "resultCode":"Refused"
+     }
+    RESPONSE
+  end
+
+  def failed_fraud_visa_response
+    <<-RESPONSE
+    {
+      "additionalData":
+      {
+        "refusalReasonRaw": "N7 : FRAUD"
        },
        "refusalReason": "Refused",
        "pspReference":"8514775559925128",

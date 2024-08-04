@@ -27,9 +27,10 @@ class DatatransTest < Test::Unit::TestCase
       }
     })
 
-    @transaction_reference = '240214093712238757|093712'
+    @transaction_reference = '240214093712238757|093712|123alias_token_id123|05|25'
 
     @billing_address = address
+    @no_country_billing_address = address(country: nil)
 
     @nt_credit_card = network_tokenization_credit_card(
       '4111111111111111',
@@ -84,6 +85,19 @@ class DatatransTest < Test::Unit::TestCase
     assert_success response
   end
 
+  def test_authorize_with_credit_card_and_no_country_billing_address
+    response = stub_comms(@gateway, :ssl_request) do
+      @gateway.authorize(@amount, @credit_card, @options.merge({ billing_address: @no_country_billing_address }))
+    end.check_request do |_action, endpoint, data, _headers|
+      parsed_data = JSON.parse(data)
+      common_assertions_authorize_purchase(endpoint, parsed_data)
+      billing = parsed_data['billing']
+      assert_nil billing['country']
+    end.respond_with(successful_authorize_response)
+
+    assert_success response
+  end
+
   def test_purchase_with_credit_card
     response = stub_comms(@gateway, :ssl_request) do
       @gateway.purchase(@amount, @credit_card, @options)
@@ -94,6 +108,17 @@ class DatatransTest < Test::Unit::TestCase
 
       assert_equal(true, parsed_data['autoSettle'])
     end.respond_with(successful_purchase_response)
+
+    assert_success response
+  end
+
+  def test_verify_with_credit_card
+    response = stub_comms(@gateway, :ssl_request) do
+      @gateway.verify(@credit_card, @options)
+    end.check_request do |_action, endpoint, data, _headers|
+      parsed_data = JSON.parse(data)
+      common_assertions_authorize_purchase(endpoint, parsed_data) unless parsed_data.empty?
+    end.respond_with(successful_authorize_response, successful_void_response)
 
     assert_success response
   end
@@ -194,6 +219,43 @@ class DatatransTest < Test::Unit::TestCase
     assert_success response
   end
 
+  def test_store
+    response = stub_comms(@gateway, :ssl_request) do
+      @gateway.store(@credit_card, @options)
+    end.check_request do |_action, endpoint, data, _headers|
+      assert_match('aliases/tokenize', endpoint)
+      parsed_data = JSON.parse(data)
+      request = parsed_data['requests'][0]
+      assert_equal('CARD', request['type'])
+      assert_equal(@credit_card.number, request['pan'])
+    end.respond_with(successful_store_response)
+
+    assert_success response
+  end
+
+  def test_unstore
+    response = stub_comms(@gateway, :ssl_request) do
+      @gateway.unstore(@transaction_reference, @options)
+    end.check_request do |_action, endpoint, data, _headers|
+      assert_match('aliases/123alias_token_id123', endpoint)
+      assert_equal data, '{}'
+    end.respond_with(successful_unstore_response)
+
+    assert_success response
+  end
+
+  def test_purchase_with_tpv
+    response = stub_comms(@gateway, :ssl_request) do
+      @gateway.purchase(@amount, @transaction_reference, @options)
+    end.check_request do |_action, endpoint, data, _headers|
+      parsed_data = JSON.parse(data)
+      common_assertions_authorize_purchase(endpoint, parsed_data)
+      assert_equal(@transaction_reference.split('|')[2], parsed_data['card']['alias'])
+    end.respond_with(successful_purchase_response)
+
+    assert_success response
+  end
+
   def test_required_merchant_id_and_password
     error = assert_raises ArgumentError do
       DatatransGateway.new
@@ -249,7 +311,7 @@ class DatatransTest < Test::Unit::TestCase
 
   def test_url_generation_from_action
     action = 'test'
-    assert_equal "#{@gateway.test_url}#{action}", @gateway.send(:url, action)
+    assert_equal "#{@gateway.test_url}transactions/#{action}", @gateway.send(:url, action)
   end
 
   def test_scrub
@@ -258,10 +320,14 @@ class DatatransTest < Test::Unit::TestCase
   end
 
   def test_authorization_from
-    assert_equal '1234|9248', @gateway.send(:authorization_from, { 'transactionId' => '1234', 'acquirerAuthorizationCode' => '9248' })
-    assert_equal '1234|', @gateway.send(:authorization_from, { 'transactionId' => '1234' })
-    assert_equal '|9248', @gateway.send(:authorization_from, { 'acquirerAuthorizationCode' => '9248' })
-    assert_equal nil, @gateway.send(:authorization_from, {})
+    assert_equal '1234|9248|', @gateway.send(:authorization_from, { 'transactionId' => '1234', 'acquirerAuthorizationCode' => '9248' }, '', {})
+    assert_equal '1234||', @gateway.send(:authorization_from, { 'transactionId' => '1234' }, '', {})
+    assert_equal '|9248|', @gateway.send(:authorization_from, { 'acquirerAuthorizationCode' => '9248' }, '', {})
+    assert_equal nil, @gateway.send(:authorization_from, {}, '', {})
+    # tes for store
+    assert_equal '||any_alias|any_month|any_year', @gateway.send(:authorization_from, { 'responses' => [{ 'alias' => 'any_alias' }] }, 'tokenize', { expiry_month: 'any_month', expiry_year: 'any_year' })
+    # handle nil responses or missing keys
+    assert_equal '|||any_month|any_year', @gateway.send(:authorization_from, {}, 'tokenize', { expiry_month: 'any_month', expiry_year: 'any_year' })
   end
 
   def test_parse
@@ -289,6 +355,19 @@ class DatatransTest < Test::Unit::TestCase
     '{"response_code": 204}'
   end
 
+  def successful_store_response
+    '{
+    "overview":{"total":1, "successful":1, "failed":0},
+    "responses":
+      [{
+        "type":"CARD",
+        "alias":"7LHXscqwAAEAAAGQvYQBwc5zIs52AGRs",
+        "maskedCC":"424242xxxxxx4242",
+        "fingerprint":"F-dSjBoCMOYxomP49vzhdOYE"
+      }]
+    }'
+  end
+
   def common_assertions_authorize_purchase(endpoint, parsed_data)
     assert_match('authorize', endpoint)
     assert_equal(@options[:order_id], parsed_data['refno'])
@@ -299,6 +378,7 @@ class DatatransTest < Test::Unit::TestCase
   alias successful_purchase_response successful_authorize_response
   alias successful_refund_response successful_authorize_response
   alias successful_void_response successful_capture_response
+  alias successful_unstore_response successful_capture_response
 
   def pre_scrubbed
     <<~PRE_SCRUBBED

@@ -62,7 +62,8 @@ module ActiveMerchant #:nodoc:
         jcb: '007',
         dankort: '034',
         maestro: '042',
-        elo: '054'
+        elo: '054',
+        carnet: '058'
       }
 
       @@decision_codes = {
@@ -609,12 +610,24 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_merchant_descriptor(xml, options)
-        return unless options[:merchant_descriptor] || options[:user_po] || options[:taxable] || options[:reference_data_code] || options[:invoice_number]
+        return unless options[:merchant_descriptor] ||
+                      options[:user_po] ||
+                      options[:taxable] ||
+                      options[:reference_data_code] ||
+                      options[:invoice_number] ||
+                      options[:merchant_descriptor_city] ||
+                      options[:submerchant_id] ||
+                      options[:merchant_descriptor_state] ||
+                      options[:merchant_descriptor_country]
 
         xml.tag! 'invoiceHeader' do
           xml.tag! 'merchantDescriptor', options[:merchant_descriptor] if options[:merchant_descriptor]
+          xml.tag! 'merchantDescriptorCity', options[:merchant_descriptor_city] if options[:merchant_descriptor_city]
+          xml.tag! 'merchantDescriptorState', options[:merchant_descriptor_state] if options[:merchant_descriptor_state]
+          xml.tag! 'merchantDescriptorCountry', options[:merchant_descriptor_country] if options[:merchant_descriptor_country]
           xml.tag! 'userPO', options[:user_po] if options[:user_po]
           xml.tag! 'taxable', options[:taxable] if options[:taxable]
+          xml.tag! 'submerchantID', options[:submerchant_id] if options[:submerchant_id]
           xml.tag! 'referenceDataCode', options[:reference_data_code] if options[:reference_data_code]
           xml.tag! 'invoiceNumber', options[:invoice_number] if options[:invoice_number]
         end
@@ -860,13 +873,15 @@ module ActiveMerchant #:nodoc:
       end
 
       def stored_credential_commerce_indicator(options)
-        return unless options[:stored_credential]
+        return unless (reason_type = options.dig(:stored_credential, :reason_type))
 
-        return if options[:stored_credential][:initial_transaction]
-
-        case options[:stored_credential][:reason_type]
-        when 'installment' then 'install'
-        when 'recurring' then 'recurring'
+        case reason_type
+        when 'installment'
+          'install'
+        when 'recurring'
+          'recurring'
+        else
+          'internet'
         end
       end
 
@@ -882,9 +897,10 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_auth_network_tokenization(xml, payment_method, options)
+        commerce_indicator = stored_credential_commerce_indicator(options) || 'internet'
         xml.tag! 'ccAuthService', { 'run' => 'true' } do
           xml.tag!('networkTokenCryptogram', payment_method.payment_cryptogram)
-          xml.tag!('commerceIndicator', 'internet')
+          xml.tag!('commerceIndicator', commerce_indicator)
           xml.tag!('reconciliationID', options[:reconciliation_id]) if options[:reconciliation_id]
         end
       end
@@ -1104,7 +1120,7 @@ module ActiveMerchant #:nodoc:
       def add_stored_credential_options(xml, options = {})
         return unless options[:stored_credential] || options[:stored_credential_overrides]
 
-        stored_credential_subsequent_auth_first = 'true' if options.dig(:stored_credential, :initial_transaction)
+        stored_credential_subsequent_auth_first = 'true' if cardholder_or_initiated_transaction?(options)
         stored_credential_transaction_id = options.dig(:stored_credential, :network_transaction_id) if options.dig(:stored_credential, :initiator) == 'merchant'
         stored_credential_subsequent_auth_stored_cred = 'true' if subsequent_cardholder_initiated_transaction?(options) || unscheduled_merchant_initiated_transaction?(options) || threeds_stored_credential_exemption?(options)
 
@@ -1115,6 +1131,10 @@ module ActiveMerchant #:nodoc:
         xml.subsequentAuthFirst override_subsequent_auth_first.nil? ? stored_credential_subsequent_auth_first : override_subsequent_auth_first
         xml.subsequentAuthTransactionID override_subsequent_auth_transaction_id.nil? ? stored_credential_transaction_id : override_subsequent_auth_transaction_id
         xml.subsequentAuthStoredCredential override_subsequent_auth_stored_cred.nil? ? stored_credential_subsequent_auth_stored_cred : override_subsequent_auth_stored_cred
+      end
+
+      def cardholder_or_initiated_transaction?(options)
+        options.dig(:stored_credential, :initiator) == 'cardholder' || options.dig(:stored_credential, :initial_transaction)
       end
 
       def subsequent_cardholder_initiated_transaction?(options)

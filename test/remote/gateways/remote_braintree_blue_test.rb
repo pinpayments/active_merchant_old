@@ -271,6 +271,54 @@ class RemoteBraintreeBlueTest < Test::Unit::TestCase
 
     assert_match 'OK', response.message
     assert_equal 'M', response.cvv_result['code']
+    assert_equal 'M', response.avs_result['code']
+  end
+
+  def test_successful_credit_card_verification_without_billing_address
+    options = {
+      order_ID: '1',
+      description: 'store purchase'
+    }
+    card = credit_card('4111111111111111')
+    assert response = @gateway.verify(card, options.merge({ allow_card_verification: true, merchant_account_id: fixtures(:braintree_blue)[:merchant_account_id] }))
+    assert_success response
+
+    assert_match 'OK', response.message
+    assert_equal 'M', response.cvv_result['code']
+    assert_equal 'I', response.avs_result['code']
+  end
+
+  def test_successful_credit_card_verification_with_only_address
+    options = {
+      order_ID: '1',
+      description: 'store purchase',
+      billing_address: {
+        address1: '456 My Street'
+      }
+    }
+    card = credit_card('4111111111111111')
+    assert response = @gateway.verify(card, options.merge({ allow_card_verification: true, merchant_account_id: fixtures(:braintree_blue)[:merchant_account_id] }))
+    assert_success response
+
+    assert_match 'OK', response.message
+    assert_equal 'M', response.cvv_result['code']
+    assert_equal 'B', response.avs_result['code']
+  end
+
+  def test_successful_credit_card_verification_with_only_zip
+    options = {
+      order_ID: '1',
+      description: 'store purchase',
+      billing_address: {
+        zip: 'K1C2N6'
+      }
+    }
+    card = credit_card('4111111111111111')
+    assert response = @gateway.verify(card, options.merge({ allow_card_verification: true, merchant_account_id: fixtures(:braintree_blue)[:merchant_account_id] }))
+    assert_success response
+
+    assert_match 'OK', response.message
+    assert_equal 'M', response.cvv_result['code']
     assert_equal 'P', response.avs_result['code']
   end
 
@@ -1025,7 +1073,7 @@ class RemoteBraintreeBlueTest < Test::Unit::TestCase
 
   def test_successful_recurring_first_stored_credential_v2
     creds_options = stored_credential_options(:cardholder, :recurring, :initial)
-    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options, stored_credentials_v2: true))
+    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options))
     assert_success response
     assert_equal '1000 Approved', response.message
     assert_not_nil response.params['braintree_transaction']['network_transaction_id']
@@ -1034,7 +1082,7 @@ class RemoteBraintreeBlueTest < Test::Unit::TestCase
 
   def test_successful_follow_on_recurring_first_cit_stored_credential_v2
     creds_options = stored_credential_options(:cardholder, :recurring, id: '020190722142652')
-    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options, stored_credentials_v2: true))
+    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options))
     assert_success response
     assert_equal '1000 Approved', response.message
     assert_not_nil response.params['braintree_transaction']['network_transaction_id']
@@ -1043,7 +1091,7 @@ class RemoteBraintreeBlueTest < Test::Unit::TestCase
 
   def test_successful_follow_on_recurring_first_mit_stored_credential_v2
     creds_options = stored_credential_options(:merchant, :recurring, id: '020190722142652')
-    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options, stored_credentials_v2: true))
+    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options))
     assert_success response
     assert_equal '1000 Approved', response.message
     assert_not_nil response.params['braintree_transaction']['network_transaction_id']
@@ -1052,7 +1100,7 @@ class RemoteBraintreeBlueTest < Test::Unit::TestCase
 
   def test_successful_one_time_mit_stored_credential_v2
     creds_options = stored_credential_options(:merchant, id: '020190722142652')
-    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options, stored_credentials_v2: true))
+    response = @gateway.purchase(@amount, credit_card('4111111111111111'), @options.merge(stored_credential: creds_options))
 
     assert_success response
     assert_equal '1000 Approved', response.message

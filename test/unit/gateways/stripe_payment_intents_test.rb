@@ -315,6 +315,15 @@ class StripePaymentIntentsTest < Test::Unit::TestCase
     end.respond_with(successful_create_intent_response)
   end
 
+  def test_failed_authorize_with_idempotent_replayed
+    @gateway.instance_variable_set(:@response_headers, { 'idempotent-replayed' => 'true' })
+    @gateway.expects(:ssl_request).returns(failed_payment_method_response)
+
+    response = @gateway.authorize(@amount, @credit_card, @options)
+    assert_failure response
+    assert response.params['response_headers']['idempotent_replayed'], 'true'
+  end
+
   def test_failed_error_on_requires_action
     @gateway.expects(:ssl_request).returns(failed_with_set_error_on_requires_action_response)
 
@@ -924,6 +933,16 @@ class StripePaymentIntentsTest < Test::Unit::TestCase
     assert_equal 'M', purchase.cvv_result.dig('code')
     assert_equal 'CVV matches', purchase.cvv_result.dig('message')
     assert_equal 'Y', purchase.avs_result.dig('code')
+  end
+
+  def test_create_setup_intent_with_moto_exemption
+    options = @options.merge(moto: true, confirm: true)
+
+    stub_comms(@gateway, :ssl_request) do
+      @gateway.create_setup_intent(@visa_token, options)
+    end.check_request do |_method, _endpoint, data, _headers|
+      assert_match(/\[moto\]=true/, data)
+    end.respond_with(successful_verify_response)
   end
 
   private

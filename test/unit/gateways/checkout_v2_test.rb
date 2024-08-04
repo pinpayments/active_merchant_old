@@ -86,6 +86,21 @@ class CheckoutV2Test < Test::Unit::TestCase
     end.respond_with(successful_purchase_response)
   end
 
+  def test_successful_passing_risk_data
+    stub_comms(@gateway, :ssl_request) do
+      @gateway.purchase(@amount, @credit_card, {
+        risk: {
+          enabled: 'true',
+          device_session_id: '12345-abcd'
+        }
+      })
+    end.check_request do |_method, _endpoint, data, _headers|
+      request = JSON.parse(data)['risk']
+      assert_equal request['enabled'], true
+      assert_equal request['device_session_id'], '12345-abcd'
+    end.respond_with(successful_purchase_response)
+  end
+
   def test_successful_passing_incremental_authorization
     response = stub_comms(@gateway, :ssl_request) do
       @gateway.authorize(@amount, @credit_card, { incremental_authorization: 'abcd1234' })
@@ -416,23 +431,13 @@ class CheckoutV2Test < Test::Unit::TestCase
     assert_equal Gateway::STANDARD_ERROR_CODE[:invalid_number], response.error_code
   end
 
-  def test_failed_purchase_3ds_with_threeds_response_message
-    response = stub_comms(@gateway, :ssl_request) do
-      @gateway.purchase(@amount, @credit_card, { execute_threed: true, exemption: 'no_preference', challenge_indicator: 'trusted_listing', threeds_response_message: true })
-    end.respond_with(failed_purchase_3ds_response)
-
-    assert_failure response
-    assert_equal 'Insufficient Funds', response.message
-    assert_equal nil, response.error_code
-  end
-
-  def test_failed_purchase_3ds_without_threeds_response_message
+  def test_failed_purchase_3ds
     response = stub_comms(@gateway, :ssl_request) do
       @gateway.purchase(@amount, @credit_card, { execute_threed: true, exemption: 'no_preference', challenge_indicator: 'trusted_listing' })
     end.respond_with(failed_purchase_3ds_response)
 
     assert_failure response
-    assert_equal 'Declined', response.message
+    assert_equal 'Insufficient Funds', response.message
     assert_equal nil, response.error_code
   end
 

@@ -2,12 +2,38 @@
 = ActiveMerchant CHANGELOG
 
 == HEAD
+
+= Version 1.137.0 (August 2, 2024)
+
+* Unlock dependency on `rexml` to allow fixing a CVE (#5181).
 * Bump Ruby version to 3.1 [dustinhaefele] #5104
 * FlexCharge: Update inquire method to use the new orders end-point
 * Worldpay: Prefer options for network_transaction_id [aenand] #5129
 * Braintree: Prefer options for network_transaction_id [aenand] #5129
 * Cybersource Rest: Update support for stored credentials [aenand] #5083
 * Plexo: Add support to NetworkToken payments [euribe09] #5130
+* Braintree: Update card verfification payload if billing address fields are not present [yunnydang] #5142
+* DLocal: Update the phone and ip fields [yunnydang] #5143
+* CheckoutV2: Add support for risk data fields [yunnydang] #5147
+* Pin Payments: Add new 3DS params mentioned in Pin Payments docs [hudakh] #4720
+* RedsysRest: Add support for stored credentials & 3DS exemptions [jherreraa] #5132
+* CheckoutV2: Truncate the reference id for amex transactions [yunnydang] #5151
+* CommerceHub: Add billing address name override [yunnydang] #5157
+* StripePI: Add optional ability for 3DS exemption on verify calls [yunnydang] #5160
+* CyberSource: Update stored credentials [sinourain] #5136
+* Orbital: Update to accept UCAF Indicator GSF [almalee24] #5150
+* CyberSource: Add addtional invoiceHeader fields [yunnydang] #5161
+* MerchantWarrior: Update phone, email, ip and store ID [almalee24] #5158
+* Credorax: Update 3DS version mapping [almalee24] #5159
+* Add Maestro card bins [yunnydang] #5172
+* Braintree: Remove stored credential v1 [almalee24] #5175
+* Braintree Blue: Pass overridden mid into client token for GS 3DS [sinourain] #5166
+* Moneris: Update crypt_type for 3DS [almalee24] #5162
+* CheckoutV2: Update 3DS message & error code [almalee24] #5177
+* DecicirPlus: Update error_message to add safety navigator [almalee24] #5187
+* Elavon: Add updated stored credential version [almalee24] #5170
+* Adyen: Add header fields to response body [yunnydang] #5184
+* Stripe and Stripe PI: Add header fields to response body [yunnydang] #5185
 
 == Version 1.136.0 (June 3, 2024)
 * Shift4V2: Add new gateway based on SecurionPay adapter [heavyblade] #4860

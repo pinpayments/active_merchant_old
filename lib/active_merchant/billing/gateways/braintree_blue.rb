@@ -144,16 +144,21 @@ module ActiveMerchant #:nodoc:
           exp_month = creditcard.month.to_s
           exp_year = creditcard.year.to_s
           expiration = "#{exp_month}/#{exp_year}"
+          zip = options[:billing_address].try(:[], :zip)
+          address1 = options[:billing_address].try(:[], :address1)
           payload = {
             credit_card: {
               number: creditcard.number,
               expiration_date: expiration,
-              cvv: creditcard.verification_value,
-              billing_address: {
-                postal_code: options[:billing_address][:zip]
-              }
+              cvv: creditcard.verification_value
             }
           }
+          if zip || address1
+            payload[:credit_card][:billing_address] = {}
+            payload[:credit_card][:billing_address][:postal_code] = zip if zip
+            payload[:credit_card][:billing_address][:street_address] = address1 if address1
+          end
+
           if merchant_account_id = (options[:merchant_account_id] || @merchant_account_id)
             payload[:options] = { merchant_account_id: merchant_account_id }
           end
@@ -907,18 +912,10 @@ module ActiveMerchant #:nodoc:
         return unless (stored_credential = options[:stored_credential])
 
         add_external_vault(parameters, options)
-
-        if options[:stored_credentials_v2]
-          stored_credentials_v2(parameters, stored_credential)
-        else
-          stored_credentials_v1(parameters, stored_credential)
-        end
+        stored_credentials(parameters, stored_credential)
       end
 
-      def stored_credentials_v2(parameters, stored_credential)
-        # Differences between v1 and v2 are
-        # initial_transaction + recurring/installment should be labeled {{reason_type}}_first
-        # unscheduled in AM should map to '' at BT because unscheduled here means not on a fixed timeline or fixed amount
+      def stored_credentials(parameters, stored_credential)
         case stored_credential[:reason_type]
         when 'recurring', 'installment'
           if stored_credential[:initial_transaction]
@@ -930,20 +927,6 @@ module ActiveMerchant #:nodoc:
           parameters[:transaction_source] = stored_credential[:reason_type]
         when 'unscheduled'
           parameters[:transaction_source] = stored_credential[:initiator] == 'merchant' ? stored_credential[:reason_type] : ''
-        else
-          parameters[:transaction_source] = ''
-        end
-      end
-
-      def stored_credentials_v1(parameters, stored_credential)
-        if stored_credential[:initiator] == 'merchant'
-          if stored_credential[:reason_type] == 'installment'
-            parameters[:transaction_source] = 'recurring'
-          else
-            parameters[:transaction_source] = stored_credential[:reason_type]
-          end
-        elsif %w(recurring_first moto).include?(stored_credential[:reason_type])
-          parameters[:transaction_source] = stored_credential[:reason_type]
         else
           parameters[:transaction_source] = ''
         end
@@ -1053,7 +1036,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_bank_account_to_customer(payment_method, options)
-        bank_account_nonce, error_message = TokenNonce.new(@braintree_gateway, options).create_token_nonce_for_payment_method payment_method
+        bank_account_nonce, error_message = TokenNonce.new(@braintree_gateway, options).create_token_nonce_for_payment_method(payment_method, options)
         return Response.new(false, error_message) unless bank_account_nonce.present?
 
         result = @braintree_gateway.payment_method.create(
