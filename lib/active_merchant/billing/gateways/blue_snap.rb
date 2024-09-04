@@ -260,6 +260,7 @@ module ActiveMerchant
       def add_order(doc, options)
         doc.send('merchant-transaction-id', truncate(options[:order_id], 50)) if options[:order_id]
         doc.send('soft-descriptor', options[:soft_descriptor]) if options[:soft_descriptor]
+        doc.send('descriptor-phone-number', options[:descriptor_phone_number]) if options[:descriptor_phone_number]
         add_metadata(doc, options)
         add_3ds(doc, options[:three_d_secure]) if options[:three_d_secure]
         add_level_3_data(doc, options)
@@ -366,6 +367,7 @@ module ActiveMerchant
       def add_alt_transaction_purchase(doc, money, payment_method_details, options)
         doc.send('merchant-transaction-id', truncate(options[:order_id], 50)) if options[:order_id]
         doc.send('soft-descriptor', options[:soft_descriptor]) if options[:soft_descriptor]
+        doc.send('descriptor-phone-number', options[:descriptor_phone_number]) if options[:descriptor_phone_number]
         add_amount(doc, money, options)
 
         vaulted_shopper_id = payment_method_details.vaulted_shopper_id
@@ -444,10 +446,10 @@ module ActiveMerchant
       end
 
       def parse_element(parsed, node)
-        if !node.elements.empty?
-          node.elements.each { |e| parse_element(parsed, e) }
-        else
+        if node.elements.empty?
           parsed[node.name.downcase] = node.text
+        else
+          node.elements.each { |e| parse_element(parsed, e) }
         end
       end
 
@@ -457,8 +459,8 @@ module ActiveMerchant
         e.response
       end
 
-      def commit(action, options, verb = :post, payment_method_details = PaymentMethodDetails.new())
-        request = build_xml_request(action, payment_method_details) { |doc| yield(doc) }
+      def commit(action, options, verb = :post, payment_method_details = PaymentMethodDetails.new(), &block)
+        request = build_xml_request(action, payment_method_details, &block)
         response = api_request(action, request, verb, payment_method_details, options)
         parsed = parse(response)
 

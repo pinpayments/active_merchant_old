@@ -96,6 +96,7 @@ module ActiveMerchant #:nodoc:
       CURRENCY_CODES['ISK'] = '352'
       CURRENCY_CODES['EUR'] = '978'
       CURRENCY_CODES['USD'] = '840'
+      CURRENCY_CODES['GBP'] = '826'
 
       def add_3ds_fields(post, options)
         post[:ThreeDSMessageId] = options[:three_ds_message_id] if options[:three_ds_message_id]
@@ -105,13 +106,18 @@ module ActiveMerchant #:nodoc:
 
       def add_3ds_preauth_fields(post, options)
         post[:SaleDescription] = options[:sale_description] || ''
-        post[:MerchantReturnURL] = options[:merchant_return_url] if options[:merchant_return_url]
+        post[:MerchantReturnURL] = options[:redirect_url] if options[:redirect_url]
       end
 
       def add_invoice(post, money, options)
         post[:TrAmount] = amount(money)
         post[:TrCurrency] = CURRENCY_CODES[options[:currency] || currency(money)]
-        post[:TrCurrencyExponent] = options[:currency_exponent] || 0 if options[:apply_3d_secure] == '1'
+        # The ISK currency must have a currency exponent of 2 on the 3DS request but not on the auth request
+        if post[:TrCurrency] == '352' && options[:apply_3d_secure] != '1'
+          post[:TrCurrencyExponent] = 0
+        else
+          post[:TrCurrencyExponent] = 2
+        end
         post[:TerminalID] = options[:terminal_id] || '1'
       end
 
@@ -166,7 +172,7 @@ module ActiveMerchant #:nodoc:
           success,
           message_from(success, pairs),
           pairs,
-          authorization: authorization_from(pairs),
+          authorization: authorization_from(pairs, options),
           test: test?
         )
       end
@@ -179,12 +185,12 @@ module ActiveMerchant #:nodoc:
         if succeeded
           'Succeeded'
         else
-          response[:message] || "Error with ActionCode=#{response[:actioncode]}"
+          response[:message] || response[:status_errormessage] || "Error with ActionCode=#{response[:actioncode]}"
         end
       end
 
-      def authorization_from(response)
-        [
+      def authorization_from(response, options)
+        authorization = [
           response[:dateandtime],
           response[:batch],
           response[:transaction],
@@ -194,6 +200,8 @@ module ActiveMerchant #:nodoc:
           response[:tramount],
           response[:trcurrency]
         ].join('|')
+
+        authorization == '|||||||' ? nil : authorization
       end
 
       def split_authorization(authorization)

@@ -3,11 +3,11 @@ require 'test_helper'
 class RemoteIpgTest < Test::Unit::TestCase
   def setup
     @gateway = IpgGateway.new(fixtures(:ipg))
-
+    @gateway_ma = IpgGateway.new(fixtures(:ipg_ma).merge({ store_id: nil }))
     @amount = 100
-    @credit_card = credit_card('5165850000000008', brand: 'mastercard', verification_value: '530', month: '12', year: '2022')
+    @credit_card = credit_card('5165850000000008', brand: 'mastercard', month: '12', year: '2029')
     @declined_card = credit_card('4000300011112220', brand: 'mastercard', verification_value: '652', month: '12', year: '2022')
-    @visa_card = credit_card('4704550000000005', brand: 'visa', verification_value: '123', month: '12', year: '2022')
+    @visa_card = credit_card('4704550000000005', brand: 'visa', verification_value: '123', month: '12', year: '2029')
     @options = {
       currency: 'ARS'
     }
@@ -96,15 +96,15 @@ class RemoteIpgTest < Test::Unit::TestCase
   def test_failed_purchase
     response = @gateway.purchase(@amount, @declined_card, @options)
     assert_failure response
-    assert_equal 'DECLINED', response.message
+    assert_match 'DECLINED', response.message
     assert_equal 'SGS-050005', response.error_code
   end
 
   def test_failed_purchase_with_passed_in_store_id
-    # passing in a bad store id results in a 401 unauthorized error
-    assert_raises(ActiveMerchant::ResponseError) do
-      @gateway.purchase(@amount, @declined_card, @options.merge({ store_id: '1234' }))
-    end
+    response = @gateway.purchase(@amount, @visa_card, @options.merge({ store_id: '1234' }))
+
+    assert_failure response
+    assert 'MerchantException', response.params['faultstring']
   end
 
   def test_successful_authorize_and_capture
@@ -121,14 +121,14 @@ class RemoteIpgTest < Test::Unit::TestCase
   def test_failed_authorize
     response = @gateway.authorize(@amount, @declined_card, @options)
     assert_failure response
-    assert_equal 'DECLINED', response.message
+    assert_equal 'DECLINED, Do not honour', response.message
     assert_equal 'SGS-050005', response.error_code
   end
 
   def test_failed_capture
     response = @gateway.capture(@amount, '', @options)
     assert_failure response
-    assert_equal 'FAILED', response.message
+    assert_match 'FAILED', response.message
     assert_equal 'SGS-005001', response.error_code
   end
 
@@ -159,7 +159,7 @@ class RemoteIpgTest < Test::Unit::TestCase
   def test_failed_refund
     response = @gateway.refund(@amount, '', @options)
     assert_failure response
-    assert_equal 'FAILED', response.message
+    assert_match 'FAILED', response.message
     assert_equal 'SGS-005001', response.error_code
   end
 
@@ -172,7 +172,7 @@ class RemoteIpgTest < Test::Unit::TestCase
   def test_failed_verify
     response = @gateway.verify(@declined_card, @options)
     assert_failure response
-    assert_equal 'DECLINED', response.message
+    assert_match 'DECLINED', response.message
     assert_equal 'SGS-050005', response.error_code
   end
 
@@ -183,5 +183,17 @@ class RemoteIpgTest < Test::Unit::TestCase
     transcript = @gateway.scrub(transcript)
     assert_scrubbed(@credit_card.number, transcript)
     assert_scrubbed(@credit_card.verification_value, transcript)
+  end
+
+  def test_successful_purchase_with_ma_credentials
+    response = @gateway_ma.purchase(@amount, @credit_card, @options.merge({ store_id: fixtures(:ipg_ma)[:store_id] }))
+    assert_success response
+    assert_equal 'APPROVED', response.message
+  end
+
+  def test_failed_purchase_without_store_id
+    assert_raises(ArgumentError) do
+      @gateway_ma.purchase(@amount, @credit_card, @options)
+    end
   end
 end

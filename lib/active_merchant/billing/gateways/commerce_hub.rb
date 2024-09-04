@@ -1,7 +1,7 @@
 module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class CommerceHubGateway < Gateway
-      self.test_url = 'https://cert.api.fiservapps.com/ch'
+      self.test_url = 'https://connect-cert.fiservapps.com/ch'
       self.live_url = 'https://prod.api.fiservapps.com/ch'
 
       self.supported_countries = ['US']
@@ -18,7 +18,8 @@ module ActiveMerchant #:nodoc:
         'sale' => '/payments/v1/charges',
         'void' => '/payments/v1/cancels',
         'refund' => '/payments/v1/refunds',
-        'vault' => '/payments-vas/v1/tokens'
+        'vault' => '/payments-vas/v1/tokens',
+        'verify' => '/payments-vas/v1/accounts/verification'
       }
 
       def initialize(options = {})
@@ -29,7 +30,9 @@ module ActiveMerchant #:nodoc:
       def purchase(money, payment, options = {})
         post = {}
         options[:capture_flag] = true
-        add_transaction_details(post, options)
+        options[:create_token] = false
+
+        add_transaction_details(post, options, 'sale')
         build_purchase_and_auth_request(post, money, payment, options)
 
         commit('sale', post, options)
@@ -38,7 +41,9 @@ module ActiveMerchant #:nodoc:
       def authorize(money, payment, options = {})
         post = {}
         options[:capture_flag] = false
-        add_transaction_details(post, options)
+        options[:create_token] = false
+
+        add_transaction_details(post, options, 'sale')
         build_purchase_and_auth_request(post, money, payment, options)
 
         commit('sale', post, options)
@@ -49,7 +54,8 @@ module ActiveMerchant #:nodoc:
         options[:capture_flag] = true
         add_invoice(post, money, options)
         add_transaction_details(post, options, 'capture')
-        add_reference_transaction_details(post, authorization, options, 'capture')
+        add_reference_transaction_details(post, authorization, options, :capture)
+        add_dynamic_descriptors(post, options)
 
         commit('sale', post, options)
       end
@@ -58,7 +64,16 @@ module ActiveMerchant #:nodoc:
         post = {}
         add_invoice(post, money, options) if money
         add_transaction_details(post, options)
-        add_reference_transaction_details(post, authorization, options)
+        add_reference_transaction_details(post, authorization, options, :refund)
+
+        commit('refund', post, options)
+      end
+
+      def credit(money, payment_method, options = {})
+        post = {}
+        add_invoice(post, money, options)
+        add_transaction_interaction(post, options)
+        add_payment(post, payment_method, options)
 
         commit('refund', post, options)
       end
@@ -66,7 +81,7 @@ module ActiveMerchant #:nodoc:
       def void(authorization, options = {})
         post = {}
         add_transaction_details(post, options)
-        add_reference_transaction_details(post, authorization, options)
+        add_reference_transaction_details(post, authorization, options, :void)
 
         commit('void', post, options)
       end
@@ -82,10 +97,11 @@ module ActiveMerchant #:nodoc:
       end
 
       def verify(credit_card, options = {})
-        verify_amount = options[:verify_amount] || 0
-        options[:primary_transaction_type] = 'AUTH_ONLY'
-        options[:account_verification] = true
-        authorize(verify_amount, credit_card, options)
+        post = {}
+        add_payment(post, credit_card, options)
+        add_billing_address(post, credit_card, options)
+
+        commit('verify', post, options)
       end
 
       def supports_scrubbing?
@@ -96,6 +112,7 @@ module ActiveMerchant #:nodoc:
         transcript.
           gsub(%r((Authorization: )[a-zA-Z0-9+./=]+), '\1[FILTERED]').
           gsub(%r((Api-Key: )\w+), '\1[FILTERED]').
+          gsub(%r(("apiKey\\?":\\?")\w+), '\1[FILTERED]').
           gsub(%r(("cardData\\?":\\?")\d+), '\1[FILTERED]').
           gsub(%r(("securityCode\\?":\\?")\d+), '\1[FILTERED]').
           gsub(%r(("cavv\\?":\\?")\w+), '\1[FILTERED]')
@@ -103,31 +120,59 @@ module ActiveMerchant #:nodoc:
 
       private
 
+      def add_three_d_secure(post, payment, options)
+        return unless three_d_secure = options[:three_d_secure]
+
+        post[:additionalData3DS] = {
+          dsTransactionId: three_d_secure[:ds_transaction_id],
+          authenticationStatus: three_d_secure[:authentication_response_status],
+          serviceProviderTransactionId: three_d_secure[:three_ds_server_trans_id],
+          acsTransactionId: three_d_secure[:acs_transaction_id],
+          mpiData: {
+            cavv: three_d_secure[:cavv],
+            eci: three_d_secure[:eci],
+            xid: three_d_secure[:xid]
+          }.compact,
+          versionData: { recommendedVersion: three_d_secure[:version] }
+        }.compact
+      end
+
       def add_transaction_interaction(post, options)
         post[:transactionInteraction] = {}
-        post[:transactionInteraction][:origin] = options[:transaction_origin] || 'ECOM'
+        post[:transactionInteraction][:origin] = options[:origin] || 'ECOM'
         post[:transactionInteraction][:eciIndicator] = options[:eci_indicator] || 'CHANNEL_ENCRYPTED'
         post[:transactionInteraction][:posConditionCode] = options[:pos_condition_code] || 'CARD_NOT_PRESENT_ECOM'
+        post[:transactionInteraction][:posEntryMode] = (options[:pos_entry_mode] || 'MANUAL') unless options[:encryption_data].present?
+        post[:transactionInteraction][:additionalPosInformation] = {}
+        post[:transactionInteraction][:additionalPosInformation][:dataEntrySource] = options[:data_entry_source] || 'UNSPECIFIED'
       end
 
       def add_transaction_details(post, options, action = nil)
-        post[:transactionDetails] = {}
-        post[:transactionDetails][:captureFlag] = options[:capture_flag] unless options[:capture_flag].nil?
-        if action != 'capture'
-          post[:transactionDetails][:merchantInvoiceNumber] = options[:merchant_invoice_number] || rand.to_s[2..13]
-          post[:transactionDetails][:primaryTransactionType] = options[:primary_transaction_type] if options[:primary_transaction_type]
-          post[:transactionDetails][:accountVerification] = options[:account_verification] unless options[:account_verification].nil?
+        details = {
+          captureFlag: options[:capture_flag],
+          createToken: options[:create_token],
+          physicalGoodsIndicator: [true, 'true'].include?(options[:physical_goods_indicator])
+        }
+
+        if options[:order_id].present? && action == 'sale'
+          details[:merchantOrderId] = options[:order_id]
+          details[:merchantTransactionId] = options[:order_id]
         end
+
+        if action != 'capture'
+          details[:merchantInvoiceNumber] = options[:merchant_invoice_number] || rand.to_s[2..13]
+          details[:primaryTransactionType] = options[:primary_transaction_type]
+          details[:accountVerification] = options[:account_verification]
+        end
+
+        post[:transactionDetails] = details.compact
       end
 
       def add_billing_address(post, payment, options)
         return unless billing = options[:billing_address]
 
         billing_address = {}
-        if payment.is_a?(CreditCard)
-          billing_address[:firstName] = payment.first_name if payment.first_name
-          billing_address[:lastName] = payment.last_name if payment.last_name
-        end
+        name_from_address(billing_address, billing) || name_from_payment(billing_address, payment)
         address = {}
         address[:street] = billing[:address1] if billing[:address1]
         address[:houseNumberOrName] = billing[:address2] if billing[:address2]
@@ -143,6 +188,22 @@ module ActiveMerchant #:nodoc:
           billing_address[:phone][:phoneNumber] = billing[:phone_number]
         end
         post[:billingAddress] = billing_address
+      end
+
+      def name_from_payment(billing_address, payment)
+        return unless payment.respond_to?(:first_name) && payment.respond_to?(:last_name)
+
+        billing_address[:firstName] = payment.first_name if payment.first_name
+        billing_address[:lastName] = payment.last_name if payment.last_name
+      end
+
+      def name_from_address(billing_address, billing)
+        return unless address = billing
+
+        first_name, last_name = split_names(address[:name]) if address[:name]
+
+        billing_address[:firstName] = first_name if first_name
+        billing_address[:lastName] = last_name if last_name
       end
 
       def add_shipping_address(post, options)
@@ -167,21 +228,37 @@ module ActiveMerchant #:nodoc:
       end
 
       def build_purchase_and_auth_request(post, money, payment, options)
+        add_three_d_secure(post, payment, options)
         add_invoice(post, money, options)
         add_payment(post, payment, options)
         add_stored_credentials(post, options)
         add_transaction_interaction(post, options)
         add_billing_address(post, payment, options)
         add_shipping_address(post, options)
+        add_dynamic_descriptors(post, options)
+      end
+
+      def add_dynamic_descriptors(post, options)
+        dynamic_descriptors_fields = %i[mcc merchant_name customer_service_number service_entitlement dynamic_descriptors_address]
+        return unless dynamic_descriptors_fields.any? { |key| options.include?(key) }
+
+        dynamic_descriptors = {}
+        dynamic_descriptors[:mcc] = options[:mcc] if options[:mcc]
+        dynamic_descriptors[:merchantName] = options[:merchant_name] if options[:merchant_name]
+        dynamic_descriptors[:customerServiceNumber] = options[:customer_service_number] if options[:customer_service_number]
+        dynamic_descriptors[:serviceEntitlement] = options[:service_entitlement] if options[:service_entitlement]
+        dynamic_descriptors[:address] = options[:dynamic_descriptors_address] if options[:dynamic_descriptors_address]
+
+        post[:dynamicDescriptors] = dynamic_descriptors
       end
 
       def add_reference_transaction_details(post, authorization, options, action = nil)
-        post[:referenceTransactionDetails] = {}
-        post[:referenceTransactionDetails][:referenceTransactionId] = authorization
-        if action != 'capture'
-          post[:referenceTransactionDetails][:referenceTransactionType] = options[:reference_transaction_type] || 'CHARGES'
-          post[:referenceTransactionDetails][:referenceMerchantTransactionId] = options[:reference_merchant_transaction_id]
-        end
+        reference_details = {}
+        _merchant_reference, transaction_id = authorization.include?('|') ? authorization.split('|') : [nil, authorization]
+
+        reference_details[:referenceTransactionId] = transaction_id
+        reference_details[:referenceTransactionType] = (options[:reference_transaction_type] || 'CHARGES') unless action == :capture
+        post[:referenceTransactionDetails] = reference_details.compact
       end
 
       def add_invoice(post, money, options)
@@ -198,7 +275,7 @@ module ActiveMerchant #:nodoc:
         post[:storedCredentials][:sequence] = stored_credential[:initial_transaction] ? 'FIRST' : 'SUBSEQUENT'
         post[:storedCredentials][:initiator] = stored_credential[:initiator] == 'merchant' ? 'MERCHANT' : 'CARD_HOLDER'
         post[:storedCredentials][:scheduled] = SCHEDULED_REASON_TYPES.include?(stored_credential[:reason_type])
-        post[:storedCredentials][:schemeReferenceTransactionId] = stored_credential[:network_transaction_id] if stored_credential[:network_transaction_id]
+        post[:storedCredentials][:schemeReferenceTransactionId] = options[:scheme_reference_transaction_id] || stored_credential[:network_transaction_id]
       end
 
       def add_credit_card(source, payment, options)
@@ -240,7 +317,12 @@ module ActiveMerchant #:nodoc:
         when NetworkTokenizationCreditCard
           add_decrypted_wallet(source, payment, options)
         when CreditCard
-          add_credit_card(source, payment, options)
+          if options[:encryption_data].present?
+            source[:sourceType] = 'PaymentCard'
+            source[:encryptionData] = options[:encryption_data]
+          else
+            add_credit_card(source, payment, options)
+          end
         when String
           add_payment_token(source, payment, options)
         end
@@ -257,7 +339,7 @@ module ActiveMerchant #:nodoc:
         raw_signature = @options[:api_key] + client_request_id.to_s + time + request
         hmac = OpenSSL::HMAC.digest('sha256', @options[:api_secret], raw_signature)
         signature = Base64.strict_encode64(hmac.to_s).to_s
-
+        custom_headers = options.fetch(:headers_identifiers, {})
         {
           'Client-Request-Id' => client_request_id,
           'Api-Key' => @options[:api_key],
@@ -267,7 +349,7 @@ module ActiveMerchant #:nodoc:
           'Content-Type' => 'application/json',
           'Accept' => 'application/json',
           'Authorization' => signature
-        }
+        }.merge!(custom_headers)
       end
 
       def add_merchant_details(post)
@@ -282,12 +364,25 @@ module ActiveMerchant #:nodoc:
         response = parse(ssl_post(url, parameters.to_json, headers(parameters.to_json, options)))
 
         Response.new(
-          success_from(response),
-          message_from(response),
+          success_from(response, action),
+          message_from(response, action),
           response,
-          authorization: authorization_from(action, response),
+          authorization: authorization_from(action, response, options),
           test: test?,
-          error_code: error_code_from(response)
+          error_code: error_code_from(response, action),
+          avs_result: AVSResult.new(code: get_avs_cvv(response, 'avs')),
+          cvv_result: CVVResult.new(get_avs_cvv(response, 'cvv'))
+        )
+      end
+
+      def get_avs_cvv(response, type = 'avs')
+        response.dig(
+          'paymentReceipt',
+          'processorResponseDetails',
+          'bankAssociationDetails',
+          'avsSecurityCodeResponse',
+          'association',
+          type == 'avs' ? 'avsCode' : 'securityCodeResponse'
         )
       end
 
@@ -300,21 +395,32 @@ module ActiveMerchant #:nodoc:
         end
       end
 
-      def success_from(response)
+      def success_from(response, action = nil)
+        return message_from(response, action) == 'VERIFIED' if action == 'verify'
+
         (response.dig('paymentReceipt', 'processorResponseDetails', 'responseCode') || response.dig('paymentTokens', 0, 'tokenResponseCode')) == '000'
       end
 
-      def message_from(response)
-        response.dig('paymentReceipt', 'processorResponseDetails', 'responseMessage') || response.dig('error', 0, 'message') || response.dig('gatewayResponse', 'transactionType')
+      def message_from(response, action = nil)
+        return response.dig('error', 0, 'message') if response['error'].present?
+        return response.dig('gatewayResponse', 'transactionState') if action == 'verify'
+
+        response.dig('paymentReceipt', 'processorResponseDetails', 'responseMessage') || response.dig('gatewayResponse', 'transactionType')
       end
 
-      def authorization_from(action, response)
-        return response.dig('gatewayResponse', 'transactionProcessingDetails', 'transactionId') unless action == 'vault'
-        return response.dig('paymentTokens', 0, 'tokenData') if action == 'vault'
+      def authorization_from(action, response, options)
+        case action
+        when 'vault'
+          response.dig('paymentTokens', 0, 'tokenData')
+        when 'sale'
+          [options[:order_id] || '', response.dig('gatewayResponse', 'transactionProcessingDetails', 'transactionId')].join('|')
+        else
+          response.dig('gatewayResponse', 'transactionProcessingDetails', 'transactionId')
+        end
       end
 
-      def error_code_from(response)
-        response.dig('error', 0, 'type') unless success_from(response)
+      def error_code_from(response, action)
+        response.dig('error', 0, 'code') unless success_from(response, action)
       end
     end
   end

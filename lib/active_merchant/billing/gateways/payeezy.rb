@@ -35,12 +35,15 @@ module ActiveMerchant
 
         add_invoice(params, options)
         add_reversal_id(params, options)
+        add_customer_ref(params, options)
+        add_reference_3(params, options)
         add_payment_method(params, payment_method, options)
         add_address(params, options)
         add_amount(params, amount, options)
         add_soft_descriptors(params, options)
         add_level2_data(params, options)
         add_stored_credentials(params, options)
+        add_external_three_ds(params, payment_method, options)
 
         commit(params, options)
       end
@@ -50,12 +53,15 @@ module ActiveMerchant
 
         add_invoice(params, options)
         add_reversal_id(params, options)
+        add_customer_ref(params, options)
+        add_reference_3(params, options)
         add_payment_method(params, payment_method, options)
         add_address(params, options)
         add_amount(params, amount, options)
         add_soft_descriptors(params, options)
         add_level2_data(params, options)
         add_stored_credentials(params, options)
+        add_external_three_ds(params, payment_method, options)
 
         commit(params, options)
       end
@@ -140,12 +146,40 @@ module ActiveMerchant
 
       private
 
+      def add_external_three_ds(params, payment_method, options)
+        return unless three_ds = options[:three_d_secure]
+
+        params[:'3DS'] = {
+          program_protocol: three_ds[:version][0],
+          directory_server_transaction_id: three_ds[:ds_transaction_id],
+          cardholder_name: payment_method.name,
+          card_number: payment_method.number,
+          exp_date: format_exp_date(payment_method.month, payment_method.year),
+          cvv: payment_method.verification_value,
+          xid: three_ds[:acs_transaction_id],
+          cavv: three_ds[:cavv],
+          wallet_provider_id: 'NO_WALLET',
+          type: 'D'
+        }.compact
+
+        params[:eci_indicator] = options[:three_d_secure][:eci]
+        params[:method] = '3DS'
+      end
+
       def add_invoice(params, options)
         params[:merchant_ref] = options[:order_id]
       end
 
       def add_reversal_id(params, options)
         params[:reversal_id] = options[:reversal_id] if options[:reversal_id]
+      end
+
+      def add_customer_ref(params, options)
+        params[:customer_ref] = options[:customer_ref] if options[:customer_ref]
+      end
+
+      def add_reference_3(params, options)
+        params[:reference_3] = options[:reference_3] if options[:reference_3]
       end
 
       def amount_from_authorization(authorization)
@@ -155,6 +189,8 @@ module ActiveMerchant
       def add_authorization_info(params, authorization, options = {})
         transaction_id, transaction_tag, method, = authorization.split('|')
         params[:method] = method == 'token' ? 'credit_card' : method
+        # If the previous transaction `method` value was 3DS, it needs to be set to `credit_card` on follow up transactions
+        params[:method] = 'credit_card' if method == '3DS'
 
         if options[:reversal_id]
           params[:reversal_id] = options[:reversal_id]
@@ -168,7 +204,7 @@ module ActiveMerchant
         params[:apikey] = @options[:apikey]
         params[:ta_token] = options[:ta_token]
         params[:type] = 'FDToken'
-        params[:credit_card] = add_card_data(payment_method)
+        params[:credit_card] = add_card_data(payment_method, options)
         params[:auth] = 'false'
       end
 
@@ -184,7 +220,7 @@ module ActiveMerchant
         elsif payment_method.is_a? NetworkTokenizationCreditCard
           add_network_tokenization(params, payment_method, options)
         else
-          add_creditcard(params, payment_method)
+          add_creditcard(params, payment_method, options)
         end
       end
 
@@ -195,7 +231,7 @@ module ActiveMerchant
         tele_check[:check_type] = 'P'
         tele_check[:routing_number] = echeck.routing_number
         tele_check[:account_number] = echeck.account_number
-        tele_check[:accountholder_name] = "#{echeck.first_name} #{echeck.last_name}"
+        tele_check[:accountholder_name] = name_from_payment_method(echeck)
         tele_check[:customer_id_type] = options[:customer_id_type] if options[:customer_id_type]
         tele_check[:customer_id_number] = options[:customer_id_number] if options[:customer_id_number]
         tele_check[:client_email] = options[:client_email] if options[:client_email]
@@ -221,17 +257,17 @@ module ActiveMerchant
         params[:token] = token
       end
 
-      def add_creditcard(params, creditcard)
-        credit_card = add_card_data(creditcard)
+      def add_creditcard(params, creditcard, options)
+        credit_card = add_card_data(creditcard, options)
 
         params[:method] = 'credit_card'
         params[:credit_card] = credit_card
       end
 
-      def add_card_data(payment_method)
+      def add_card_data(payment_method, options = {})
         card = {}
         card[:type] = CREDIT_CARD_BRAND[payment_method.brand]
-        card[:cardholder_name] = payment_method.name
+        card[:cardholder_name] = name_from_payment_method(payment_method) || name_from_address(options)
         card[:card_number] = payment_method.number
         card[:exp_date] = format_exp_date(payment_method.month, payment_method.year)
         card[:cvv] = payment_method.verification_value if payment_method.verification_value?
@@ -241,17 +277,17 @@ module ActiveMerchant
       def add_network_tokenization(params, payment_method, options)
         nt_card = {}
         nt_card[:type] = 'D'
-        nt_card[:cardholder_name] = payment_method.first_name || name_from_address(options)
+        nt_card[:cardholder_name] = name_from_payment_method(payment_method) || name_from_address(options)
         nt_card[:card_number] = payment_method.number
         nt_card[:exp_date] = format_exp_date(payment_method.month, payment_method.year)
         nt_card[:cvv] = payment_method.verification_value
-        nt_card[:xid] = payment_method.payment_cryptogram
-        nt_card[:cavv] = payment_method.payment_cryptogram
+        nt_card[:xid] = payment_method.payment_cryptogram unless payment_method.payment_cryptogram.empty? || payment_method.brand.include?('american_express')
+        nt_card[:cavv] = payment_method.payment_cryptogram unless payment_method.payment_cryptogram.empty?
         nt_card[:wallet_provider_id] = 'APPLE_PAY'
 
         params['3DS'] = nt_card
         params[:method] = '3DS'
-        params[:eci_indicator] = payment_method.eci
+        params[:eci_indicator] = payment_method.eci.nil? ? '5' : payment_method.eci
       end
 
       def format_exp_date(month, year)
@@ -261,6 +297,12 @@ module ActiveMerchant
       def name_from_address(options)
         return unless address = options[:billing_address]
         return address[:name] if address[:name]
+      end
+
+      def name_from_payment_method(payment_method)
+        return unless payment_method.first_name && payment_method.last_name
+
+        return "#{payment_method.first_name} #{payment_method.last_name}"
       end
 
       def add_address(params, options)
@@ -305,8 +347,7 @@ module ActiveMerchant
       end
 
       def original_transaction_id(options)
-        return options[:cardbrand_original_transaction_id] if options[:cardbrand_original_transaction_id]
-        return options[:stored_credential][:network_transaction_id] if options.dig(:stored_credential, :network_transaction_id)
+        return options[:cardbrand_original_transaction_id] || options.dig(:stored_credential, :network_transaction_id)
       end
 
       def initiator(options)
@@ -383,8 +424,7 @@ module ActiveMerchant
           @options[:token],
           payload
         ].join('')
-        hash = Base64.strict_encode64(OpenSSL::HMAC.hexdigest('sha256', @options[:apisecret], message))
-        hash
+        Base64.strict_encode64(OpenSSL::HMAC.hexdigest('sha256', @options[:apisecret], message))
       end
 
       def headers(payload)

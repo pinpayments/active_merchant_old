@@ -361,20 +361,13 @@ class RedsysSHA256Test < Test::Unit::TestCase
   end
 
   def test_successful_verify
-    @gateway.expects(:ssl_post).times(2).returns(successful_authorize_response).then.returns(successful_void_response)
+    @gateway.expects(:ssl_post).returns(successful_purchase_response)
     response = @gateway.verify(credit_card, order_id: '144743367273')
     assert_success response
-  end
-
-  def test_successful_verify_with_failed_void
-    @gateway.expects(:ssl_post).times(2).returns(successful_authorize_response).then.returns(failed_void_response)
-    response = @gateway.verify(credit_card, order_id: '144743367273')
-    assert_success response
-    assert_equal 'Transaction Approved', response.message
   end
 
   def test_unsuccessful_verify
-    @gateway.expects(:ssl_post).returns(failed_authorize_response)
+    @gateway.expects(:ssl_post).returns(failed_purchase_response)
     response = @gateway.verify(credit_card, order_id: '141278225678')
     assert_failure response
     assert_equal 'SIS0093 ERROR', response.message
@@ -391,7 +384,7 @@ class RedsysSHA256Test < Test::Unit::TestCase
   end
 
   def test_supported_countries
-    assert_equal ['ES'], RedsysGateway.supported_countries
+    assert_equal %w[ES FR GB IT PL PT], RedsysGateway.supported_countries
   end
 
   def test_supported_cardtypes

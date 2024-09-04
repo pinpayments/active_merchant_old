@@ -18,7 +18,8 @@ class RemoteShift4Test < Test::Unit::TestCase
       tax: '2',
       customer_reference: 'D019D09309F2',
       destination_postal_code: '94719',
-      product_descriptors: %w(Hamburger Fries Soda Cookie)
+      product_descriptors: %w(Hamburger Fries Soda Cookie),
+      order_id: '123456'
     }
     @customer_address = {
       address1: '65 Easy St',
@@ -76,6 +77,12 @@ class RemoteShift4Test < Test::Unit::TestCase
   def test_successful_purchase_with_extra_options
     response = @gateway.purchase(@amount, @credit_card, @options.merge(@extra_options))
     assert_success response
+  end
+
+  def test_successful_purchase_passes_vendor_reference
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(@extra_options))
+    assert_success response
+    assert_equal response_result(response)['transaction']['vendorReference'], @extra_options[:order_id]
   end
 
   def test_successful_purchase_with_stored_credential_framework
@@ -173,13 +180,13 @@ class RemoteShift4Test < Test::Unit::TestCase
   end
 
   def test_failed_purchase
-    response = @gateway.purchase(@amount, @declined_card, @options)
+    response = @gateway.purchase(1500000000, @credit_card, @options)
     assert_failure response
-    assert_include response.message, 'Card  for Merchant Id 0008628968 not found'
+    assert_include response.message, 'Transaction declined'
   end
 
   def test_failure_on_referral_transactions
-    response = @gateway.purchase(67800, @credit_card, @options)
+    response = @gateway.purchase(99999899, @credit_card, @options)
     assert_failure response
     assert_include 'Transaction declined', response.message
   end
@@ -190,10 +197,18 @@ class RemoteShift4Test < Test::Unit::TestCase
     assert_include response.message, 'Card  for Merchant Id 0008628968 not found'
   end
 
-  def test_failed_authorize_with_error_message
-    response = @gateway.authorize(@amount, @unsupported_card, @options)
+  def test_failed_authorize_with_failure_amount
+    # this amount triggers failure according to Shift4 docs
+    response = @gateway.authorize(1500000000, @credit_card, @options)
     assert_failure response
-    assert_equal response.message, 'Format \'UTF8: An unexpected continuatio\' invalid or incompatible with argument'
+    assert_equal response.message, 'Transaction declined'
+  end
+
+  def test_failed_authorize_with_error_message
+    # this amount triggers failure according to Shift4 docs
+    response = @gateway.authorize(1500000000, @credit_card, @options)
+    assert_failure response
+    assert_equal response.message, 'Transaction declined'
   end
 
   def test_failed_capture
@@ -203,9 +218,21 @@ class RemoteShift4Test < Test::Unit::TestCase
   end
 
   def test_failed_refund
-    response = @gateway.refund(@amount, 'YC', @options)
+    response = @gateway.refund(1919, @credit_card, @options)
     assert_failure response
-    assert_include response.message, 'record not posted'
+    assert_include response.message, 'Transaction declined'
+  end
+
+  def test_successful_credit
+    response = @gateway.credit(@amount, @credit_card, @options)
+    assert_success response
+    assert_equal response.message, 'Transaction successful'
+  end
+
+  def test_failed_credit
+    response = @gateway.credit(1919, @credit_card, @options)
+    assert_failure response
+    assert_include response.message, 'Transaction declined'
   end
 
   def test_successful_refund
@@ -234,6 +261,13 @@ class RemoteShift4Test < Test::Unit::TestCase
     response = @gateway.void('', @options)
     assert_failure response
     assert_include response.message, 'Invoice Not Found'
+  end
+
+  def test_failed_access_token
+    gateway = Shift4Gateway.new({ client_guid: 'YOUR_CLIENT_ID', auth_token: 'YOUR_AUTH_TOKEN' })
+    assert_raises(ActiveMerchant::OAuthResponseError) do
+      gateway.setup_access_token
+    end
   end
 
   private

@@ -7,8 +7,8 @@ module ActiveMerchant #:nodoc:
     # You may use Check in place of CreditCard with any gateway that supports it.
     class Check < Model
       attr_accessor :first_name, :last_name,
-        :bank_name, :routing_number, :account_number,
-        :account_holder_type, :account_type, :number
+                    :bank_name, :routing_number, :account_number,
+                    :account_holder_type, :account_type, :number
 
       # Used for Canadian bank accounts
       attr_accessor :institution_number, :transit_number
@@ -20,7 +20,7 @@ module ActiveMerchant #:nodoc:
         309 310 315 320 338 340 509 540 608 614 623 809 815 819 828 829 837 839
         865 879 889 899 241 242 248 250 265 275 277 290 294 301 303 307 311 314
         321 323 327 328 330 332 334 335 342 343 346 352 355 361 362 366 370 372
-        376 378 807 853 890
+        376 378 807 853 890 618 842
       )
 
       def name
