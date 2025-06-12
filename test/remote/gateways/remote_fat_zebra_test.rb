@@ -100,6 +100,20 @@ class RemoteFatZebraTest < Test::Unit::TestCase
     assert_match %r{Approved}, response.message
   end
 
+  def test_standalone_refund_with_card_token
+    assert card = @gateway.store(@credit_card)
+
+    assert response = @gateway.refund(@amount, card.authorization, @options.merge(standalone: true))
+    assert_success response
+    assert_match %r{Approved}, response.message
+  end
+
+  def test_standalone_refund_with_credit_card
+    assert response = @gateway.refund(@amount, @credit_card, @options.merge(standalone: true))
+    assert_success response
+    assert_match %r{Approved}, response.message
+  end
+
   def test_invalid_refund
     @gateway.purchase(@amount, @credit_card, @options)
 

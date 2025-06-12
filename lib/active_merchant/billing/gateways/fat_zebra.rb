@@ -59,13 +59,18 @@ module ActiveMerchant #:nodoc:
         commit(:post, "purchases/#{CGI.escape(txn_id)}/capture", post)
       end
 
-      def refund(money, authorization, options = {})
-        txn_id, = authorization.to_s.split('|')
+      def refund(money, authorization_or_creditcard, options = {})
         post = {}
+
+        if options[:standalone]
+          add_creditcard(post, authorization_or_creditcard, options)
+        else
+          txn_id, = authorization_or_creditcard.to_s.split('|')
+          post[:transaction_id] = txn_id
+        end
 
         add_extra_options(post, options)
         add_amount(post, money, options)
-        post[:transaction_id] = txn_id
         add_order_id(post, options)
 
         commit(:post, 'refunds', post)

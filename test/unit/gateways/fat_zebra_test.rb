@@ -208,6 +208,32 @@ class FatZebraTest < Test::Unit::TestCase
     assert response.test?
   end
 
+  def test_successful_standalone_refund_with_card_token
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      json = JSON.parse(body)
+      json['card_token'] == 'TESTCARDTOKEN'
+    }.returns(successful_refund_response)
+
+    assert response = @gateway.refund(100, 'TESTCARDTOKEN', @options.merge(standalone: true))
+    assert_success response
+    assert_equal '003-R-7MNIUMY6|refunds', response.authorization
+    assert response.test?
+  end
+
+  def test_successful_standalone_refund_with_credit_card
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      json = JSON.parse(body)
+      json['card_number'] == @credit_card.number
+      json['card_expiry'] == "#{@credit_card.month}/#{@credit_card.year}"
+      json['card_holder'] == @credit_card.name
+    }.returns(successful_refund_response)
+
+    assert response = @gateway.refund(100, @credit_card, @options.merge(standalone: true))
+    assert_success response
+    assert_equal '003-R-7MNIUMY6|refunds', response.authorization
+    assert response.test?
+  end
+
   def test_unsuccessful_refund
     @gateway.expects(:ssl_request).returns(unsuccessful_refund_response)
 
