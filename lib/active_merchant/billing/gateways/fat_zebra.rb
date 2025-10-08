@@ -111,16 +111,23 @@ module ActiveMerchant #:nodoc:
       end
 
       def add_creditcard(post, creditcard, options = {})
-        if creditcard.respond_to?(:number)
+        case creditcard
+        when ->(pm) { pm.try(:credit_card?) }
           post[:card_number] = creditcard.number
           post[:card_expiry] = "#{creditcard.month}/#{creditcard.year}"
-          post[:cvv] = creditcard.verification_value if creditcard.verification_value?
           post[:card_holder] = creditcard.name if creditcard.name
-        elsif creditcard.is_a?(String)
+
+          if creditcard.is_a?(NetworkTokenizationCreditCard)
+            post[:network_eci] = creditcard.eci if creditcard.eci
+            post[:cryptogram] = creditcard.payment_cryptogram
+          else
+            post[:cvv] = creditcard.verification_value if creditcard.verification_value?
+          end
+        when String
           id, = creditcard.to_s.split('|')
           post[:card_token] = id
           post[:cvv] = options[:cvv]
-        elsif creditcard.is_a?(Hash)
+        when Hash
           ActiveMerchant.deprecated 'Passing the credit card as a Hash is deprecated. Use a String and put the (optional) CVV in the options hash instead.'
           post[:card_token] = creditcard[:token]
           post[:cvv] = creditcard[:cvv]

@@ -20,6 +20,30 @@ class RemoteFatZebraTest < Test::Unit::TestCase
     assert_equal 'Approved', response.message
   end
 
+  def test_successful_purchase_using_vts_network_token_with_eci
+    network_token = network_tokenization_credit_card(
+      '4444444444447722',
+      { source: :network_token, brand: 'visa', eci: '07', payment_cryptogram: 'Aaaaaa111112222223333344444==' }
+    )
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_using_non_vts_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :network_token, brand: 'master', payment_cryptogram: 'Aaaaaa111112222223333344444==' }
+    )
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal 'Approved', response.message
+  end
+
   def test_successful_multi_currency_purchase
     assert response = @gateway.purchase(@amount, @credit_card, @options.merge(currency: 'USD'))
     assert_success response

@@ -75,6 +75,41 @@ class FatZebraTest < Test::Unit::TestCase
     assert response.test?
   end
 
+  def test_successful_purchase_using_vts_network_token_with_eci
+    network_token = network_tokenization_credit_card(
+      '4444444444447722',
+      { source: :network_token, brand: 'visa', eci: '07', payment_cryptogram: 'Aaaaaa111112222223333344444==' }
+    )
+
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      body.match '"network_eci":"07"'
+      body.match '"cryptogram":"%s"' % network_token.payment_cryptogram
+    }.returns(successful_purchase_response)
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal '001-P-12345AA|purchases', response.authorization
+    assert response.test?
+  end
+
+  def test_successful_purchase_using_non_vts_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :network_token, brand: 'master', payment_cryptogram: 'Aaaaaa111112222223333344444==' }
+    )
+
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      body.match '"cryptogram":"%s"' % network_token.payment_cryptogram
+    }.returns(successful_purchase_response)
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal '001-P-12345AA|purchases', response.authorization
+    assert response.test?
+  end
+
   def test_successful_multi_currency_purchase
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
       body.match '"currency":"USD"'
