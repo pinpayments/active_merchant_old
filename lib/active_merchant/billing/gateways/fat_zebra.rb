@@ -118,8 +118,20 @@ module ActiveMerchant #:nodoc:
           post[:card_holder] = creditcard.name if creditcard.name
 
           if creditcard.is_a?(NetworkTokenizationCreditCard)
-            post[:network_eci] = creditcard.eci if creditcard.eci
-            post[:cryptogram] = creditcard.payment_cryptogram
+            case creditcard.source.to_s
+            when 'apple_pay', 'android_pay', 'google_pay'
+              post[:wallet] ||= {}
+              post[:wallet][:type] = wallet_type(creditcard)
+              post[:wallet][:cryptogram] = creditcard.payment_cryptogram if creditcard.payment_cryptogram
+
+              if creditcard.eci
+                post[:extra] ||= {}
+                post[:extra][:sli] = creditcard.eci
+              end
+            else
+              post[:network_eci] = creditcard.eci if creditcard.eci
+              post[:cryptogram] = creditcard.payment_cryptogram
+            end
           else
             post[:cvv] = creditcard.verification_value if creditcard.verification_value?
           end
@@ -133,6 +145,15 @@ module ActiveMerchant #:nodoc:
           post[:cvv] = creditcard[:cvv]
         else
           raise ArgumentError.new("Unknown credit card format #{creditcard.inspect}")
+        end
+      end
+
+      def wallet_type(creditcard)
+        case creditcard.source.to_s
+        when 'apple_pay'
+          'passthrough_apple_pay'
+        when 'android_pay', 'google_pay'
+          'passthrough_google_pay'
         end
       end
 
@@ -150,7 +171,8 @@ module ActiveMerchant #:nodoc:
           extra[:cavv] = options[:cavv] if options[:cavv]
         end
 
-        post[:extra] = extra if extra.any?
+        post[:extra] ||= {}
+        post[:extra].merge!(extra) if extra.any?
       end
 
       def add_three_ds(post, options)

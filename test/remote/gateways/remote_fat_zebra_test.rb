@@ -44,6 +44,42 @@ class RemoteFatZebraTest < Test::Unit::TestCase
     assert_equal 'Approved', response.message
   end
 
+  def test_successful_purchase_using_apple_pay_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :apple_pay, brand: 'master', payment_cryptogram: 'Aaaaaa111112222223333344444==', eci: '05' }
+    )
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_using_google_pay_cryptogram_3ds_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :google_pay, brand: 'master', payment_cryptogram: 'Aaaaaa111112222223333344444==', eci: '05' }
+    )
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_using_google_pay_pan_only_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :google_pay, brand: 'master' }
+    )
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal 'Approved', response.message
+  end
+
   def test_successful_multi_currency_purchase
     assert response = @gateway.purchase(@amount, @credit_card, @options.merge(currency: 'USD'))
     assert_success response

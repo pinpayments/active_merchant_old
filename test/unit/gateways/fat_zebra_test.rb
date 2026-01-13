@@ -82,8 +82,8 @@ class FatZebraTest < Test::Unit::TestCase
     )
 
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
-      body.match '"network_eci":"07"'
-      body.match '"cryptogram":"%s"' % network_token.payment_cryptogram
+      body.match('"network_eci":"07"') &&
+        body.match('"cryptogram":"%s"' % network_token.payment_cryptogram)
     }.returns(successful_purchase_response)
 
     assert response = @gateway.purchase(@amount, network_token, @options)
@@ -101,6 +101,69 @@ class FatZebraTest < Test::Unit::TestCase
 
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
       body.match '"cryptogram":"%s"' % network_token.payment_cryptogram
+    }.returns(successful_purchase_response)
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal '001-P-12345AA|purchases', response.authorization
+    assert response.test?
+  end
+
+  def test_successful_purchase_using_apple_pay_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :apple_pay, brand: 'master', payment_cryptogram: 'Aaaaaa111112222223333344444==', eci: '05' }
+    )
+
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      post_data = JSON.parse(body)
+
+      post_data.dig('wallet', 'type') == 'passthrough_apple_pay' &&
+        post_data.dig('wallet', 'cryptogram') == network_token.payment_cryptogram &&
+        post_data.dig('extra', 'sli') == network_token.eci
+    }.returns(successful_purchase_response)
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal '001-P-12345AA|purchases', response.authorization
+    assert response.test?
+  end
+
+  def test_successful_purchase_using_google_pay_cryptogram_3ds_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :google_pay, brand: 'master', payment_cryptogram: 'Aaaaaa111112222223333344444==', eci: '05' }
+    )
+
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      post_data = JSON.parse(body)
+
+      post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+        post_data.dig('wallet', 'cryptogram') == network_token.payment_cryptogram &&
+        post_data.dig('extra', 'sli') == network_token.eci
+    }.returns(successful_purchase_response)
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal '001-P-12345AA|purchases', response.authorization
+    assert response.test?
+  end
+
+  def test_successful_purchase_using_google_pay_pan_only_network_token
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      { source: :google_pay, brand: 'master' }
+    )
+
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      post_data = JSON.parse(body)
+
+      post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+        post_data.dig('wallet', 'cryptogram') == nil &&
+        post_data.dig('extra', 'sli') == nil
     }.returns(successful_purchase_response)
 
     assert response = @gateway.purchase(@amount, network_token, @options)
