@@ -171,6 +171,12 @@ module ActiveMerchant #:nodoc:
           extra[:cavv] = options[:cavv] if options[:cavv]
         end
 
+        if options[:raw_descriptor]
+          extra[:descriptor] = {
+            raw: options[:raw_descriptor]
+          }
+        end
+
         post[:extra] ||= {}
         post[:extra].merge!(extra) if extra.any?
       end

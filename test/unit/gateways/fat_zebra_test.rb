@@ -51,6 +51,20 @@ class FatZebraTest < Test::Unit::TestCase
     assert response.test?
   end
 
+  def test_successful_purchase_with_raw_descriptor
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      post_data = JSON.parse(body)
+
+      post_data.dig('extra', 'descriptor', 'raw') == 'PAYCORP*Clean Co'
+    }.returns(successful_purchase_response_with_metadata)
+
+    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(raw_descriptor: 'PAYCORP*Clean Co'))
+    assert_success response
+
+    assert_equal '001-P-12345AA|purchases', response.authorization
+    assert response.test?
+  end
+
   def test_successful_purchase_with_token
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
       body.match '"card_token":"e1q7dbj2"'
