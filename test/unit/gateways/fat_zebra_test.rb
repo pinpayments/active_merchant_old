@@ -134,6 +134,7 @@ class FatZebraTest < Test::Unit::TestCase
       post_data = JSON.parse(body)
 
       post_data.dig('wallet', 'type') == 'passthrough_apple_pay' &&
+        !post_data['wallet'].key?('token_format') &&
         post_data.dig('wallet', 'cryptogram') == network_token.payment_cryptogram &&
         post_data.dig('extra', 'sli') == network_token.eci
     }.returns(successful_purchase_response)
@@ -155,6 +156,7 @@ class FatZebraTest < Test::Unit::TestCase
       post_data = JSON.parse(body)
 
       post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+        post_data.dig('wallet', 'token_format') == 'CRYPTOGRAM_3DS' &&
         post_data.dig('wallet', 'cryptogram') == network_token.payment_cryptogram &&
         post_data.dig('extra', 'sli') == network_token.eci
     }.returns(successful_purchase_response)
@@ -176,8 +178,34 @@ class FatZebraTest < Test::Unit::TestCase
       post_data = JSON.parse(body)
 
       post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+        post_data.dig('wallet', 'token_format') == 'PAN_ONLY' &&
         post_data.dig('wallet', 'cryptogram') == nil &&
         post_data.dig('extra', 'sli') == nil
+    }.returns(successful_purchase_response)
+
+    assert response = @gateway.purchase(@amount, network_token, @options)
+    assert_success response
+
+    assert_equal '001-P-12345AA|purchases', response.authorization
+    assert response.test?
+  end
+
+  def test_successful_purchase_using_google_pay_network_token_with_explicit_token_format
+    network_token = network_tokenization_credit_card(
+      '5555555555557777',
+      {
+        source: :google_pay,
+        brand: 'master',
+        metadata: { token_format: 'CRYPTOGRAM_3DS' }
+      }
+    )
+
+    @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
+      post_data = JSON.parse(body)
+
+      post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+        post_data.dig('wallet', 'token_format') == 'CRYPTOGRAM_3DS' &&
+        post_data.dig('wallet', 'cryptogram') == nil
     }.returns(successful_purchase_response)
 
     assert response = @gateway.purchase(@amount, network_token, @options)

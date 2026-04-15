@@ -124,6 +124,10 @@ module ActiveMerchant #:nodoc:
               post[:wallet][:type] = wallet_type(creditcard)
               post[:wallet][:cryptogram] = creditcard.payment_cryptogram if creditcard.payment_cryptogram
 
+              if token_format_value = token_format(creditcard)
+                post[:wallet][:token_format] = token_format_value
+              end
+
               if creditcard.eci
                 post[:extra] ||= {}
                 post[:extra][:sli] = creditcard.eci
@@ -155,6 +159,14 @@ module ActiveMerchant #:nodoc:
         when 'android_pay', 'google_pay'
           'passthrough_google_pay'
         end
+      end
+
+      def token_format(creditcard)
+        return unless wallet_type(creditcard) == 'passthrough_google_pay'
+
+        return creditcard.metadata.dig(:token_format) if creditcard.metadata&.dig(:token_format)
+
+        creditcard.payment_cryptogram.present? ? 'CRYPTOGRAM_3DS' : 'PAN_ONLY'
       end
 
       def add_extra_options(post, options)
