@@ -406,6 +406,39 @@ class FatZebraTest < Test::Unit::TestCase
     assert_equal ds_options[:authentication_response_status], ds_data[:par]
   end
 
+  def test_three_ds_v2_preserves_existing_extra_keys
+    post = { extra: { card_on_file: true, auth_reason: 'recurring', ecm: '32' } }
+    @options[:three_d_secure] = @three_ds_secure
+
+    @gateway.send(:add_three_ds, post, @options)
+
+    ds_data = post[:extra]
+    # Pre-existing keys survive the 3DS merge
+    assert_equal true, ds_data[:card_on_file]
+    assert_equal 'recurring', ds_data[:auth_reason]
+    assert_equal '32', ds_data[:ecm]
+    # 3DS keys are still added
+    assert_equal @three_ds_secure[:cavv], ds_data[:cavv]
+    assert_equal @three_ds_secure[:eci], ds_data[:sli]
+    assert_equal @three_ds_secure[:xid], ds_data[:xid]
+  end
+
+  def test_purchase_with_three_ds_and_card_on_file
+    @options[:three_d_secure] = @three_ds_secure
+    @options[:extra] = { card_on_file: true, auth_reason: 'unscheduled' }
+    stub_comms(@gateway, :ssl_request) do
+      @gateway.purchase(@amount, @credit_card, @options)
+    end.check_request(skip_response: true) do |_method, _endpoint, data, _headers|
+      extra = JSON.parse(data)['extra']
+      # 3DS payload made it through
+      assert_equal '3q2+78r+ur7erb7vyv66vv\/\/\/\/8=', extra['cavv']
+      assert_equal '05', extra['sli']
+      # card_on_file payload survived the merge
+      assert_equal true, extra['card_on_file']
+      assert_equal 'unscheduled', extra['auth_reason']
+    end
+  end
+
   def test_purchase_with_three_ds
     @options[:three_d_secure] = @three_ds_secure
     stub_comms(@gateway, :ssl_request) do

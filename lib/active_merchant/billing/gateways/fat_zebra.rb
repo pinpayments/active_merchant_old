@@ -196,7 +196,11 @@ module ActiveMerchant #:nodoc:
       def add_three_ds(post, options)
         return unless three_d_secure = options[:three_d_secure]
 
-        post[:extra] = {
+        # Merge into post[:extra] rather than replacing it so that
+        # keys set earlier by add_extra_options (e.g. card_on_file,
+        # auth_reason, ecm) are preserved alongside the 3DS payload.
+        post[:extra] ||= {}
+        post[:extra].merge!({
           sli: three_d_secure[:eci],
           xid: three_d_secure[:xid],
           cavv: three_d_secure[:cavv],
@@ -204,7 +208,7 @@ module ActiveMerchant #:nodoc:
           ver: formatted_enrollment(three_d_secure[:enrolled]),
           threeds_version: three_d_secure[:version],
           ds_transaction_id: three_d_secure[:ds_transaction_id]
-        }.compact
+        }.compact)
       end
 
       def formatted_enrollment(val)
