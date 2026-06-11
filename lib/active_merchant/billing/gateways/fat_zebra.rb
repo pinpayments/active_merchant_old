@@ -199,9 +199,17 @@ module ActiveMerchant #:nodoc:
         # Merge into post[:extra] rather than replacing it so that
         # keys set earlier by add_extra_options (e.g. card_on_file,
         # auth_reason, ecm) are preserved alongside the 3DS payload.
+        #
+        # SLI and ECI are forwarded as separate fields. Fat Zebra
+        # Gateway accepts both (and Checkout-routed transactions
+        # require ECI explicitly for third-party 3DS). When a caller
+        # only supplies :eci (the historical case where ECI and SLI
+        # were conflated), fall back to using it as SLI so existing
+        # behaviour is preserved.
         post[:extra] ||= {}
         post[:extra].merge!({
-          sli: three_d_secure[:eci],
+          sli: three_d_secure[:sli].presence || three_d_secure[:eci],
+          eci: three_d_secure[:eci],
           xid: three_d_secure[:xid],
           cavv: three_d_secure[:cavv],
           par: three_d_secure[:authentication_response_status],
