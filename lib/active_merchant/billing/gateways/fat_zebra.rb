@@ -196,15 +196,27 @@ module ActiveMerchant #:nodoc:
       def add_three_ds(post, options)
         return unless three_d_secure = options[:three_d_secure]
 
-        post[:extra] = {
-          sli: three_d_secure[:eci],
+        # Merge into post[:extra] rather than replacing it so that
+        # keys set earlier by add_extra_options (e.g. card_on_file,
+        # auth_reason, ecm) are preserved alongside the 3DS payload.
+        #
+        # SLI and ECI are forwarded as separate fields. Fat Zebra
+        # Gateway accepts both (and Checkout-routed transactions
+        # require ECI explicitly for third-party 3DS). When a caller
+        # only supplies :eci (the historical case where ECI and SLI
+        # were conflated), fall back to using it as SLI so existing
+        # behaviour is preserved.
+        post[:extra] ||= {}
+        post[:extra].merge!({
+          sli: three_d_secure[:sli].presence || three_d_secure[:eci],
+          eci: three_d_secure[:eci],
           xid: three_d_secure[:xid],
           cavv: three_d_secure[:cavv],
           par: three_d_secure[:authentication_response_status],
           ver: formatted_enrollment(three_d_secure[:enrolled]),
           threeds_version: three_d_secure[:version],
-          ds_transaction_id: three_d_secure[:ds_transaction_id]
-        }.compact
+          directory_server_txn_id: three_d_secure[:ds_transaction_id]
+        }.compact)
       end
 
       def formatted_enrollment(val)

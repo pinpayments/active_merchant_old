@@ -25,6 +25,7 @@ class FatZebraTest < Test::Unit::TestCase
       eci: '05',
       xid: 'ODUzNTYzOTcwODU5NzY3Qw==',
       enrolled: 'true',
+      ds_transaction_id: 'f25084f0-5b16-4c0a-ae5d-b24808a95e4b',
       authentication_response_status: 'Y'
     }
   end
@@ -389,7 +390,7 @@ class FatZebraTest < Test::Unit::TestCase
 
   def test_three_ds_v2_object_construction
     post = {}
-    @options[:three_d_secure] = @three_ds_secure
+    @options[:three_d_secure] = @three_ds_secure.merge(sli: '06')
 
     @gateway.send(:add_three_ds, post, @options)
 
@@ -399,22 +400,102 @@ class FatZebraTest < Test::Unit::TestCase
 
     assert_equal ds_options[:version], ds_data[:threeds_version]
     assert_equal ds_options[:cavv], ds_data[:cavv]
-    assert_equal ds_options[:eci], ds_data[:sli]
+    # SLI and ECI are forwarded as separate fields when both are
+    # supplied; ECI is preserved verbatim from the 3DS authentication
+    # response, SLI carries the (potentially distinct) security level
+    # indicator value.
+    assert_equal ds_options[:sli], ds_data[:sli]
+    assert_equal ds_options[:eci], ds_data[:eci]
     assert_equal ds_options[:xid], ds_data[:xid]
-    assert_equal ds_options[:ds_transaction_id], ds_data[:ds_transaction_id]
+    assert_equal ds_options[:ds_transaction_id], ds_data[:directory_server_txn_id]
     assert_equal 'Y', ds_data[:ver]
     assert_equal ds_options[:authentication_response_status], ds_data[:par]
   end
 
-  def test_purchase_with_three_ds
+  def test_three_ds_v2_eci_falls_back_to_sli_when_sli_omitted
+    # Backwards-compat: historical callers only supplied :eci and
+    # relied on it being forwarded as SLI. That behaviour must be
+    # preserved when :sli isn't explicitly set.
+    post = {}
     @options[:three_d_secure] = @three_ds_secure
+    refute @three_ds_secure.key?(:sli)
+
+    @gateway.send(:add_three_ds, post, @options)
+
+    ds_data = post[:extra]
+    assert_equal @three_ds_secure[:eci], ds_data[:sli]
+    assert_equal @three_ds_secure[:eci], ds_data[:eci]
+  end
+
+  def test_three_ds_v2_blank_sli_falls_back_to_eci
+    # An empty-string SLI shouldn't preempt the :eci fallback; only
+    # a genuinely present value should win.
+    post = {}
+    @options[:three_d_secure] = @three_ds_secure.merge(sli: '')
+
+    @gateway.send(:add_three_ds, post, @options)
+
+    ds_data = post[:extra]
+    assert_equal @three_ds_secure[:eci], ds_data[:sli]
+    assert_equal @three_ds_secure[:eci], ds_data[:eci]
+  end
+
+  def test_three_ds_v2_sli_only_does_not_set_eci
+    post = {}
+    @options[:three_d_secure] = @three_ds_secure.reject { |k, _| k == :eci }.merge(sli: '06')
+
+    @gateway.send(:add_three_ds, post, @options)
+
+    ds_data = post[:extra]
+    assert_equal '06', ds_data[:sli]
+    refute ds_data.key?(:eci), 'extra.eci should not be sent when :eci is not supplied'
+  end
+
+  def test_three_ds_v2_preserves_existing_extra_keys
+    post = { extra: { card_on_file: true, auth_reason: 'recurring', ecm: '32' } }
+    @options[:three_d_secure] = @three_ds_secure.merge(sli: '06')
+
+    @gateway.send(:add_three_ds, post, @options)
+
+    ds_data = post[:extra]
+    # Pre-existing keys survive the 3DS merge
+    assert_equal true, ds_data[:card_on_file]
+    assert_equal 'recurring', ds_data[:auth_reason]
+    assert_equal '32', ds_data[:ecm]
+    # 3DS keys are still added
+    assert_equal @three_ds_secure[:cavv], ds_data[:cavv]
+    assert_equal '06', ds_data[:sli]
+    assert_equal @three_ds_secure[:eci], ds_data[:eci]
+    assert_equal @three_ds_secure[:xid], ds_data[:xid]
+  end
+
+  def test_purchase_with_three_ds_and_card_on_file
+    @options[:three_d_secure] = @three_ds_secure.merge(sli: '06')
+    @options[:extra] = { card_on_file: true, auth_reason: 'unscheduled' }
+    stub_comms(@gateway, :ssl_request) do
+      @gateway.purchase(@amount, @credit_card, @options)
+    end.check_request(skip_response: true) do |_method, _endpoint, data, _headers|
+      extra = JSON.parse(data)['extra']
+      # 3DS payload made it through
+      assert_equal '3q2+78r+ur7erb7vyv66vv\/\/\/\/8=', extra['cavv']
+      assert_equal '06', extra['sli']
+      assert_equal '05', extra['eci']
+      # card_on_file payload survived the merge
+      assert_equal true, extra['card_on_file']
+      assert_equal 'unscheduled', extra['auth_reason']
+    end
+  end
+
+  def test_purchase_with_three_ds
+    @options[:three_d_secure] = @three_ds_secure.merge(sli: '06')
     stub_comms(@gateway, :ssl_request) do
       @gateway.purchase(@amount, @credit_card, @options)
     end.check_request(skip_response: true) do |_method, _endpoint, data, _headers|
       three_ds_params = JSON.parse(data)['extra']
       assert_equal '2.2.0', three_ds_params['threeds_version']
       assert_equal '3q2+78r+ur7erb7vyv66vv\/\/\/\/8=', three_ds_params['cavv']
-      assert_equal '05', three_ds_params['sli']
+      assert_equal '06', three_ds_params['sli']
+      assert_equal '05', three_ds_params['eci']
       assert_equal 'ODUzNTYzOTcwODU5NzY3Qw==', three_ds_params['xid']
       assert_equal 'Y', three_ds_params['ver']
       assert_equal 'Y', three_ds_params['par']
