@@ -155,14 +155,14 @@ module ActiveMerchant #:nodoc:
       def wallet_type(creditcard)
         case creditcard.source.to_s
         when 'apple_pay'
-          'passthrough_apple_pay'
+          'PASSTHROUGH_APPLE_PAY'
         when 'android_pay', 'google_pay'
-          'passthrough_google_pay'
+          'PASSTHROUGH_GOOGLE_PAY'
         end
       end
 
       def token_format(creditcard)
-        return unless wallet_type(creditcard) == 'passthrough_google_pay'
+        return unless wallet_type(creditcard) == 'PASSTHROUGH_GOOGLE_PAY'
 
         return creditcard.metadata.dig(:token_format) if creditcard.metadata&.dig(:token_format)
 

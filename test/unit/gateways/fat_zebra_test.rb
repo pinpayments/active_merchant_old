@@ -134,7 +134,7 @@ class FatZebraTest < Test::Unit::TestCase
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
       post_data = JSON.parse(body)
 
-      post_data.dig('wallet', 'type') == 'passthrough_apple_pay' &&
+      post_data.dig('wallet', 'type') == 'PASSTHROUGH_APPLE_PAY' &&
         !post_data['wallet'].key?('token_format') &&
         post_data.dig('wallet', 'cryptogram') == network_token.payment_cryptogram &&
         post_data.dig('extra', 'sli') == network_token.eci
@@ -156,7 +156,7 @@ class FatZebraTest < Test::Unit::TestCase
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
       post_data = JSON.parse(body)
 
-      post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+      post_data.dig('wallet', 'type') == 'PASSTHROUGH_GOOGLE_PAY' &&
         post_data.dig('wallet', 'token_format') == 'CRYPTOGRAM_3DS' &&
         post_data.dig('wallet', 'cryptogram') == network_token.payment_cryptogram &&
         post_data.dig('extra', 'sli') == network_token.eci
@@ -178,7 +178,7 @@ class FatZebraTest < Test::Unit::TestCase
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
       post_data = JSON.parse(body)
 
-      post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+      post_data.dig('wallet', 'type') == 'PASSTHROUGH_GOOGLE_PAY' &&
         post_data.dig('wallet', 'token_format') == 'PAN_ONLY' &&
         post_data.dig('wallet', 'cryptogram') == nil &&
         post_data.dig('extra', 'sli') == nil
@@ -204,7 +204,7 @@ class FatZebraTest < Test::Unit::TestCase
     @gateway.expects(:ssl_request).with { |_method, _url, body, _headers|
       post_data = JSON.parse(body)
 
-      post_data.dig('wallet', 'type') == 'passthrough_google_pay' &&
+      post_data.dig('wallet', 'type') == 'PASSTHROUGH_GOOGLE_PAY' &&
         post_data.dig('wallet', 'token_format') == 'CRYPTOGRAM_3DS' &&
         post_data.dig('wallet', 'cryptogram') == nil
     }.returns(successful_purchase_response)
